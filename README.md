@@ -7,6 +7,10 @@ Privacy-preserving identity verification using zkPassport and zero-knowledge pro
 [![Android Build](https://github.com/vocdoni/vocdoni-passport/actions/workflows/android-build.yml/badge.svg)](https://github.com/vocdoni/vocdoni-passport/actions/workflows/android-build.yml)
 [![iOS Build](https://github.com/vocdoni/vocdoni-passport/actions/workflows/ios-build.yml/badge.svg)](https://github.com/vocdoni/vocdoni-passport/actions/workflows/ios-build.yml)
 
+## Provenance
+
+Derived from [Vocdoni Passport](https://github.com/vocdoni/vocdoni-passport) at commit [`cdcb3cb`](https://github.com/vocdoni/vocdoni-passport/commit/cdcb3cbad85ececffe7405a16baff7137c8e025c). Product direction: [`docs/ROADMAP.md`](docs/ROADMAP.md). Licensed under AGPL-3.0-or-later.
+
 ## Continuous integration
 
 - **CI** runs TypeScript checks, ESLint, and Jest on every push (Ubuntu, GitHub-hosted).
