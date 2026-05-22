@@ -11,7 +11,6 @@ Standalone mobile app (derived from [Vocdoni Passport](https://github.com/vocdon
 
 | Phase | Summary | Status |
 |-------|---------|--------|
-| 0.0 | Detach repo from Vocdoni fork | done |
 | 0 | WSL dev + Hetzner `make apk` + phone sideload | in progress (0.1 done) |
 | 0.6 | CI for Android builds (see [Phase 0.6](#phase-06--ci-for-android-builds)) | deferred |
 | 1 | Code read-through | |
@@ -111,8 +110,6 @@ Split: **local WSL** for day-to-day dev; **Hetzner VM** for release APK builds.
 
 **Do not run `make apk` on the 12 GB dev laptop** (WSL/Docker OOM; host may require full restart). Cap WSL if needed: `memory=4GB` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`.
 
-**Not used:** Windows Gradle, AVD, `\\wsl$\` paths, Railway (app hosting—not suited to hour-long Docker compiles).
-
 ```bash
 cd /home/balazs/world-republic/multipass   # example
 npm install --legacy-peer-deps
@@ -139,22 +136,11 @@ Makefile auto-clones [vocdoni-passport-prover](https://github.com/vocdoni/vocdon
 
 ---
 
-## Phase 0.0 — Detach from Vocdoni fork
-
-| Step | Action | Verify |
-|------|--------|--------|
-| 0.0a | New GitHub repo (public OK for AGPL) | Push target exists |
-| 0.0b | `origin` → your repo only; remove `upstream` | `git remote -v` |
-| 0.0c | Push; README attribution to Vocdoni @ commit | Your repo, not “forked from” |
-| 0.0e | Plan branding/repo metadata in Phase 2 | — |
-
----
-
 ## Phase 0 — Dev environment and baseline app
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 0.1 | 0.0 + `npm install --legacy-peer-deps` | `npm test`, `npm run typecheck` |
+| 0.1 | `npm install --legacy-peer-deps` | `npm test`, `npm run typecheck` |
 | 0.2 | `make apk` on [Hetzner VM](#apk-builds-hetzner-cloud) (or local only if ≥16 GB RAM) | `out/app-release.apk` on build host; `scp` to laptop |
 | 0.3 | Sideload on physical Android | App opens |
 | 0.4 | Optional: NFC ID scan | Works on hardware |
@@ -375,12 +361,11 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 
 ## Immediate next actions
 
-1. ~~Phase 0.0~~ — done (`worldrepublicorg/multipass`, README provenance).
-2. ~~Phase 0.1~~ — done on WSL (`npm test`, `npm run typecheck`).
-3. **Phase 0.2** — Hetzner CPX41 → `make apk` → `scp` `out/app-release.apk` to laptop.
-4. **Phase 0.3** — sideload on physical Android (app opens).
-5. Phase 1 — read-through (can parallelize after 0.3).
-6. Phase 0.6 — CI on cloud VM when repeat builds hurt; skip laptop runner.
-7. Phase 2a — optional wallet.
+1. ~~Phase 0.1~~ — done on WSL (`npm test`, `npm run typecheck`).
+2. **Phase 0.2** — Hetzner CPX41 → `make apk` → `scp` `out/app-release.apk` to laptop.
+3. **Phase 0.3** — sideload on physical Android (app opens).
+4. Phase 1 — read-through (can parallelize after 0.3).
+5. Phase 0.6 — CI on cloud VM when repeat builds hurt; skip laptop runner.
+6. Phase 2a — optional wallet.
 
 For Cursor: `@docs/ROADMAP.md` and state active step (e.g. “Phase 0.2 Hetzner only”).
