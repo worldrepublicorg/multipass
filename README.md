@@ -56,16 +56,28 @@ Tagged GitHub releases also attach a signed Android `AAB` for Play Console uploa
 
 #### Android Build
 
+Release APKs are built with **Docker** (`make apk`). The image compiles Barretenberg + Gradle inside the container; host `node_modules` are **not** required (see `.dockerignore`).
+
+| Where | When |
+|-------|------|
+| **Google Cloud VM (recommended)** | Dev machines with under **16 GB RAM** (Docker OOM on WSL is common) |
+| **Local Linux / WSL** | **≥16 GB RAM**, Docker working, only if `make apk` completes without killing the host |
+
+**Full runbook:** [Android release build on Google Cloud](#android-release-build-on-google-cloud) (first-time checklist). Product phases: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ```bash
-# Build release APK using Docker (works on any OS)
+# On a suitable build host (see runbook below)
+export DOCKER_BUILDKIT=1
 make apk
+# → out/app-release.apk
 
-# Build Play Console native debug symbols ZIP
-make native-debug-symbols
-
-# Install on connected device
-make apk-install
+make native-debug-symbols   # Play Console symbol ZIP
+make apk-install            # USB: install on connected device
 ```
+
+**APK size:** Release builds package **arm64-v8a only** (~50 MB typical). Upstream [Vocdoni v1.0.0 APK](https://github.com/vocdoni/vocdoni-passport/releases/tag/v1.0.0) can be larger if it includes more CPU ABIs—that is not required for physical phones.
+
+**Runtime:** The installed app needs **no `.env` file**. ID data stays in **encrypted on-device storage**; zkPassport **registry/CRS** are fetched from public URLs and cached under the app documents directory. A backend is only involved when completing a **signing request** (QR/link provides `aggregateUrl`); see ROADMAP Phase 3 for World Republic’s verifier.
 
 #### iOS Build
 
@@ -86,6 +98,129 @@ iOS builds require macOS. You can either:
    ```
 
 See `make ios-info` for detailed iOS build instructions.
+
+## Android release build on Google Cloud
+
+Use this checklist so the first build succeeds. Tested on **Ubuntu 22.04** GCE (**e2-standard-4**, 16 GB RAM, **100 GB** disk). Same GCP project as other World Republic infra is fine.
+
+### 1. Create the build VM
+
+| Setting | Value |
+|---------|--------|
+| Name | e.g. `multipass-build` |
+| Machine type | **e2-standard-4** (16 GB RAM minimum) |
+| Boot disk | Ubuntu 22.04 LTS, **≥100 GB** balanced PD |
+| Architecture | **x86_64** (amd64) |
+
+Allow **SSH (tcp:22)**. Delete the VM (and boot disk) when idle to stop charges.
+
+### 2. Prepare the VM (once per machine)
+
+SSH in (`gcloud compute ssh …` or browser SSH), then:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io git make curl
+
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"   # optional; otherwise use sudo below
+```
+
+**BuildKit + buildx** are required (`docker/apk.Dockerfile` uses `RUN --mount=…`). Ubuntu’s `docker.io` package does not include buildx:
+
+```bash
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -fsSL \
+  https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19.3.linux-amd64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+docker buildx version
+```
+
+### 3. Put source on the VM (private repo)
+
+`worldrepublicorg/multipass` is **private**—do not rely on `git clone` over HTTPS without a token. **Recommended:** tarball from your dev machine (exclude heavy dirs):
+
+**On your laptop (WSL),** from the parent of `multipass/`:
+
+```bash
+cd /path/to/parent-of-multipass
+tar czf /tmp/multipass.tgz \
+  --exclude=node_modules \
+  --exclude=out \
+  --exclude=.cache \
+  --exclude=android/.gradle \
+  --exclude=android/app/build \
+  multipass
+```
+
+**Upload** (run on laptop, not inside the VM SSH session):
+
+```bash
+gcloud compute scp /tmp/multipass.tgz multipass-build:~/ \
+  --zone=YOUR_ZONE --project=YOUR_PROJECT_ID
+```
+
+**On the VM:**
+
+```bash
+tar xzf ~/multipass.tgz
+cd ~/multipass
+```
+
+**Incremental changes** (e.g. launcher name in `android/app/src/main/res/values/strings.xml`): `gcloud compute scp` that file into the same path on the VM, then rebuild.
+
+### 4. Build the APK
+
+```bash
+cd ~/multipass
+export DOCKER_BUILDKIT=1
+sudo -E make apk
+```
+
+- First build: often **1–2 hours** (Barretenberg + Gradle inside Docker).
+- Rebuilds after small source changes: much faster (Docker layer cache).
+- `make apk` re-clones `vocdoni-passport-prover` each time; that is expected.
+
+Verify on the VM:
+
+```bash
+ls -lh out/app-release.apk
+```
+
+### 5. Download to your laptop
+
+**On your laptop (WSL):**
+
+```bash
+gcloud compute scp multipass-build:~/multipass/out/app-release.apk . \
+  --zone=YOUR_ZONE --project=YOUR_PROJECT_ID
+```
+
+Install on a physical Android device (unknown sources / sideload). Uninstall a previous build if the launcher label does not update.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `permission denied` on `docker.sock` | `sudo -E make apk` or `usermod -aG docker` + re-login |
+| `--mount option requires BuildKit` | `export DOCKER_BUILDKIT=1` |
+| `buildx component is missing` | Install buildx (step 2) |
+| `git clone` auth failed | Use tarball + `gcloud compute scp` (step 3), or PAT / deploy key |
+| `gcloud compute scp` insufficient scopes | `gcloud auth login` and retry; or use VM external IP + `scp -i ~/.ssh/google_compute_engine` |
+| `No such file or directory` on local path | Run `gcloud compute scp` from **laptop**, not from inside VM SSH |
+| WSL / laptop freezes during `make apk` | Use GCE; do not build on hosts with under **16 GB RAM** |
+| APK ~50 MB vs ~116 MB upstream release | Normal: release APK is **arm64-only**; see table above |
+
+### Local development (no APK)
+
+On WSL or Linux (**without** running `make apk` on low-RAM machines):
+
+```bash
+npm install --legacy-peer-deps
+npm test
+npm run typecheck
+```
 
 ## Project Structure
 
