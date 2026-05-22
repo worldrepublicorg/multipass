@@ -11,9 +11,9 @@ Standalone mobile app (derived from [Vocdoni Passport](https://github.com/vocdon
 
 | Phase | Summary | Status |
 |-------|---------|--------|
-| 0.0 | Detach repo from Vocdoni fork | |
-| 0 | WSL, `make apk`, phone sideload | |
-| 0.6 | Self-hosted CI runner (WSL PC) | |
+| 0.0 | Detach repo from Vocdoni fork | done |
+| 0 | WSL dev + Hetzner `make apk` + phone sideload | in progress (0.1 done) |
+| 0.6 | CI for Android builds (see [Phase 0.6](#phase-06--ci-for-android-builds)) | deferred |
 | 1 | Code read-through | |
 | 2 | Wallet optional, branding | |
 | 3 | Your verify API (inner proofs) | |
@@ -81,9 +81,11 @@ Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerC
 | Package manager | **npm** `--legacy-peer-deps` on **WSL ext4** |
 | Repo | **Standalone GitHub repo**—no Vocdoni upstream sync |
 | Canonical path | WSL ext4 (e.g. `/home/balazs/world-republic/multipass`) |
+| Git remote | [`worldrepublicorg/multipass`](https://github.com/worldrepublicorg/multipass) |
 | Android builds | **`make apk`** (Docker)—not `npm run android` / AVD |
+| APK build host | **Hetzner Cloud VM (≥16 GB RAM)**—see [APK builds (Hetzner)](#apk-builds-hetzner-cloud). Local `make apk` only on machines with **≥16 GB** RAM; **12 GB dev laptop uses cloud** (Docker Barretenberg build OOMs WSL). |
 | Device testing | **Physical Android**, sideload APK (no USB) |
-| CI | Phase 0.6: **self-hosted runner on WSL PC** + [`android-build.yml`](../.github/workflows/android-build.yml) |
+| CI | Phase 0.6: prefer **cloud runner** (Hetzner or similar); self-hosted on 12 GB laptop not viable for [`android-build.yml`](../.github/workflows/android-build.yml) |
 | Prover server | **Your off-chain verify API** (inner proofs only) |
 | Blockchain | **Not used** for v1 |
 | Wallet | Optional / removed for v1 |
@@ -96,26 +98,42 @@ Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerC
 
 ## Dev environment (canonical)
 
-**WSL2 Ubuntu (ext4)**
+Split: **local WSL** for day-to-day dev; **Hetzner VM** for release APK builds.
+
+### Local — WSL2 Ubuntu (ext4)
 
 | Need | Setup |
 |------|--------|
 | Code + `node_modules` | WSL path (ext4) |
 | Node | 18+; `npm install --legacy-peer-deps` |
-| Docker | Docker in WSL; `docker ps` works |
-| Prover for `make apk` | Makefile auto-clone |
-| Phone | Sideload `out/app-release.apk` (unknown sources) |
+| Tests | `npm test`, `npm run typecheck` |
+| Phone | Sideload `out/app-release.apk` after download from build host (unknown sources) |
 
-**Not used for primary path:** Windows Gradle, AVD, `\\wsl$\` paths.
+**Do not run `make apk` on the 12 GB dev laptop** (WSL/Docker OOM; host may require full restart). Cap WSL if needed: `memory=4GB` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`.
+
+**Not used:** Windows Gradle, AVD, `\\wsl$\` paths, Railway (app hosting—not suited to hour-long Docker compiles).
 
 ```bash
-cd /path/to/your-repo
+cd /home/balazs/world-republic/multipass   # example
 npm install --legacy-peer-deps
-make apk
-# → out/app-release.apk
+npm test
+npm run typecheck
 ```
 
-First `make apk` is slow. Re-run after native or dependency changes.
+### APK builds (Hetzner cloud)
+
+**Why:** `docker/apk.Dockerfile` compiles Barretenberg (arm64 + x86) + Gradle; peak RAM often **12–20 GB+**. A **16 GB** cloud VM is the primary build path for this project.
+
+| Step | Action |
+|------|--------|
+| 1 | [Hetzner Cloud](https://www.hetzner.com/cloud) → Ubuntu 22.04 → **CPX41** (16 GB RAM) or larger |
+| 2 | SSH: `apt-get update && apt-get install -y docker.io git make && systemctl enable --now docker` |
+| 3 | `git clone https://github.com/worldrepublicorg/multipass.git && cd multipass && make apk` |
+| 4 | First build: plan **1–2 hours**. Re-run after native or dependency changes. |
+| 5 | Download: `scp root@<server-ip>:/root/multipass/out/app-release.apk .` |
+| 6 | Delete the VM when idle to stop billing |
+
+Makefile auto-clones [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) inside the Docker build.
 
 **Install on phone (no USB):** Copy APK to device → open → install. Optional: wireless `adb install`.
 
@@ -137,23 +155,24 @@ First `make apk` is slow. Re-run after native or dependency changes.
 | Step | Action | Verify |
 |------|--------|--------|
 | 0.1 | 0.0 + `npm install --legacy-peer-deps` | `npm test`, `npm run typecheck` |
-| 0.2 | `make apk` | `out/app-release.apk` |
+| 0.2 | `make apk` on [Hetzner VM](#apk-builds-hetzner-cloud) (or local only if ≥16 GB RAM) | `out/app-release.apk` on build host; `scp` to laptop |
 | 0.3 | Sideload on physical Android | App opens |
 | 0.4 | Optional: NFC ID scan | Works on hardware |
 | 0.5 | Keep this doc’s dev section accurate | Repeatable |
 
 ---
 
-## Phase 0.6 — Self-hosted CI runner (WSL PC)
+## Phase 0.6 — CI for Android builds
 
-| Step | Action | Verify |
-|------|--------|--------|
-| 0.6a | Repo → Actions → Runners → Linux x64; install in WSL | Runner registered |
-| 0.6b | Docker available to runner | Runner Idle |
-| 0.6c | Run **Android Build** workflow | APK artifact |
-| 0.6d | Sideload artifact | Same as 0.3 |
+**Deferred** on the 12 GB dev laptop (same OOM risk as local `make apk`). Options when needed:
 
-PC must be on when CI runs. Release signing secrets only needed for store-style builds ([`releasing.md`](releasing.md)).
+| Option | Notes |
+|--------|--------|
+| **Hetzner (or similar) runner** | Long-lived or on-demand VM with Docker; run [`android-build.yml`](../.github/workflows/android-build.yml) steps manually or register a self-hosted runner **on the VM**, not on the laptop |
+| **GitHub-hosted `ubuntu-latest`** | ~7 GB RAM—may OOM on full Docker image; try only as experiment |
+| **Laptop self-hosted runner** | Not recommended below **16 GB** host RAM |
+
+Release signing secrets only needed for store-style builds ([`releasing.md`](releasing.md)).
 
 ---
 
@@ -356,10 +375,12 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 
 ## Immediate next actions
 
-1. Phase 0.0 — your GitHub repo, remotes, drop Windows duplicate.
-2. Phase 0.1–0.3 — `npm install` → `make apk` → sideload.
-3. Phase 0.6 — self-hosted runner (when ready).
-4. Phase 1 — read-through.
-5. Phase 2a — optional wallet.
+1. ~~Phase 0.0~~ — done (`worldrepublicorg/multipass`, README provenance).
+2. ~~Phase 0.1~~ — done on WSL (`npm test`, `npm run typecheck`).
+3. **Phase 0.2** — Hetzner CPX41 → `make apk` → `scp` `out/app-release.apk` to laptop.
+4. **Phase 0.3** — sideload on physical Android (app opens).
+5. Phase 1 — read-through (can parallelize after 0.3).
+6. Phase 0.6 — CI on cloud VM when repeat builds hurt; skip laptop runner.
+7. Phase 2a — optional wallet.
 
-For Cursor: use [`.cursor/plans/phase-0-dev-baseline.plan.md`](../.cursor/plans/phase-0-dev-baseline.plan.md) as the **active** plan (Phase 0 todos only).
+For Cursor: `@docs/ROADMAP.md` and state active step (e.g. “Phase 0.2 Hetzner only”).
