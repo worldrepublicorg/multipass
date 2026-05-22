@@ -11,7 +11,7 @@ Standalone mobile app (derived from [Vocdoni Passport](https://github.com/vocdon
 
 | Phase | Summary | Status |
 |-------|---------|--------|
-| 0 | WSL dev + Hetzner `make apk` + phone sideload | in progress (0.1 done) |
+| 0 | WSL dev + GCP `make apk` + phone sideload | in progress (0.1 done) |
 | 0.6 | CI for Android builds (see [Phase 0.6](#phase-06--ci-for-android-builds)) | deferred |
 | 1 | Code read-through | |
 | 2 | Wallet optional, branding | |
@@ -80,11 +80,11 @@ Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerC
 | Package manager | **npm** `--legacy-peer-deps` on **WSL ext4** |
 | Repo | **Standalone GitHub repo**—no Vocdoni upstream sync |
 | Canonical path | WSL ext4 (e.g. `/home/balazs/world-republic/multipass`) |
-| Git remote | [`worldrepublicorg/multipass`](https://github.com/worldrepublicorg/multipass) |
+| Git remote | [worldrepublicorg/multipass](https://github.com/worldrepublicorg/multipass) |
 | Android builds | **`make apk`** (Docker)—not `npm run android` / AVD |
-| APK build host | **Hetzner Cloud VM (≥16 GB RAM)**—see [APK builds (Hetzner)](#apk-builds-hetzner-cloud). Local `make apk` only on machines with **≥16 GB** RAM; **12 GB dev laptop uses cloud** (Docker Barretenberg build OOMs WSL). |
+| APK build host | **Google Cloud Compute Engine (≥16 GB RAM)**—see [APK builds (GCP)](#apk-builds-google-cloud). Use existing GCP project (e.g. verification). Local `make apk` only on **≥16 GB** RAM; **12 GB dev laptop uses cloud** (Docker Barretenberg build OOMs WSL). |
 | Device testing | **Physical Android**, sideload APK (no USB) |
-| CI | Phase 0.6: prefer **cloud runner** (Hetzner or similar); self-hosted on 12 GB laptop not viable for [`android-build.yml`](../.github/workflows/android-build.yml) |
+| CI | Phase 0.6: **GCE VM** (same pattern as APK builds); laptop self-hosted runner not viable on 12 GB RAM |
 | Prover server | **Your off-chain verify API** (inner proofs only) |
 | Blockchain | **Not used** for v1 |
 | Wallet | Optional / removed for v1 |
@@ -97,7 +97,7 @@ Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerC
 
 ## Dev environment (canonical)
 
-Split: **local WSL** for day-to-day dev; **Hetzner VM** for release APK builds.
+Split: **local WSL** for day-to-day dev; **Google Cloud VM** for release APK builds.
 
 ### Local — WSL2 Ubuntu (ext4)
 
@@ -117,18 +117,27 @@ npm test
 npm run typecheck
 ```
 
-### APK builds (Hetzner cloud)
+### APK builds (Google Cloud)
 
-**Why:** `docker/apk.Dockerfile` compiles Barretenberg (arm64 + x86) + Gradle; peak RAM often **12–20 GB+**. A **16 GB** cloud VM is the primary build path for this project.
+**Why:** `docker/apk.Dockerfile` compiles Barretenberg (arm64 + x86) + Gradle; peak RAM often **12–20 GB+**. A **16 GB** GCE VM is the primary build path (same GCP account as verification is fine).
+
+| Spec | Value |
+|------|--------|
+| Machine type | **e2-standard-4** (4 vCPU, 16 GB RAM) or larger |
+| OS | Ubuntu 22.04 LTS (x86_64) |
+| Boot disk | **≥100 GB** balanced PD (Docker layers are large) |
+| Network | Allow **TCP 22** (SSH) from your IP or IAP |
 
 | Step | Action |
 |------|--------|
-| 1 | [Hetzner Cloud](https://www.hetzner.com/cloud) → Ubuntu 22.04 → **CPX41** (16 GB RAM) or larger |
-| 2 | SSH: `apt-get update && apt-get install -y docker.io git make && systemctl enable --now docker` |
+| 1 | GCP Console → Compute Engine → VM instances → Create (see step-by-step in repo discussions or runbook below) |
+| 2 | SSH in; install: `sudo apt-get update && sudo apt-get install -y docker.io git make && sudo systemctl enable --now docker` |
 | 3 | `git clone https://github.com/worldrepublicorg/multipass.git && cd multipass && make apk` |
 | 4 | First build: plan **1–2 hours**. Re-run after native or dependency changes. |
-| 5 | Download: `scp root@<server-ip>:/root/multipass/out/app-release.apk .` |
-| 6 | Delete the VM when idle to stop billing |
+| 5 | Download APK: `gcloud compute scp multipass-build:~/multipass/out/app-release.apk . --zone=ZONE` or `scp` with external IP |
+| 6 | **Stop or delete** the VM when idle to stop billing |
+
+**gcloud one-liner (optional):** after `gcloud auth login` and project set — create `multipass-build`, then SSH via `gcloud compute ssh multipass-build --zone=ZONE`.
 
 Makefile auto-clones [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) inside the Docker build.
 
@@ -141,7 +150,7 @@ Makefile auto-clones [vocdoni-passport-prover](https://github.com/vocdoni/vocdon
 | Step | Action | Verify |
 |------|--------|--------|
 | 0.1 | `npm install --legacy-peer-deps` | `npm test`, `npm run typecheck` |
-| 0.2 | `make apk` on [Hetzner VM](#apk-builds-hetzner-cloud) (or local only if ≥16 GB RAM) | `out/app-release.apk` on build host; `scp` to laptop |
+| 0.2 | `make apk` on [GCE VM](#apk-builds-google-cloud) (or local only if ≥16 GB RAM) | `out/app-release.apk` on build host; download to laptop |
 | 0.3 | Sideload on physical Android | App opens |
 | 0.4 | Optional: NFC ID scan | Works on hardware |
 | 0.5 | Keep this doc’s dev section accurate | Repeatable |
@@ -154,7 +163,7 @@ Makefile auto-clones [vocdoni-passport-prover](https://github.com/vocdoni/vocdon
 
 | Option | Notes |
 |--------|--------|
-| **Hetzner (or similar) runner** | Long-lived or on-demand VM with Docker; run [`android-build.yml`](../.github/workflows/android-build.yml) steps manually or register a self-hosted runner **on the VM**, not on the laptop |
+| **GCE VM runner** | Same VM pattern as [APK builds](#apk-builds-google-cloud); run [`android-build.yml`](../.github/workflows/android-build.yml) manually or register a self-hosted runner **on the VM**, not on the laptop |
 | **GitHub-hosted `ubuntu-latest`** | ~7 GB RAM—may OOM on full Docker image; try only as experiment |
 | **Laptop self-hosted runner** | Not recommended below **16 GB** host RAM |
 
@@ -362,10 +371,10 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 ## Immediate next actions
 
 1. ~~Phase 0.1~~ — done on WSL (`npm test`, `npm run typecheck`).
-2. **Phase 0.2** — Hetzner CPX41 → `make apk` → `scp` `out/app-release.apk` to laptop.
+2. **Phase 0.2** — GCE `e2-standard-4` → `make apk` → download `out/app-release.apk` to laptop.
 3. **Phase 0.3** — sideload on physical Android (app opens).
 4. Phase 1 — read-through (can parallelize after 0.3).
 5. Phase 0.6 — CI on cloud VM when repeat builds hurt; skip laptop runner.
 6. Phase 2a — optional wallet.
 
-For Cursor: `@docs/ROADMAP.md` and state active step (e.g. “Phase 0.2 Hetzner only”).
+For Cursor: `@docs/ROADMAP.md` and state active step (e.g. “Phase 0.2 GCP only”).
