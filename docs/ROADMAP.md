@@ -4,23 +4,23 @@ Standalone mobile app (derived from [Vocdoni Passport](https://github.com/vocdon
 
 ## How we execute
 
-- **One phase at a time.** Do not implement Phase 3 while still in Phase 0 unless explicitly planned.
+- **Baby steps.** One route or one mobile change per step; **verify before the next** (`curl` → browser → phone paste → deeplink).
+- **Phase 1 = verify API + signing E2E.** Public Vocdoni test petitions are **not** available (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)). **Phase 2** = mobile polish. **Phase 5 web** waits for **Phase 3 iOS + Phase 4 Aadhaar** ([@Self](../self) parity)—see phase table.
 - **Verify after each step** ([Karpathy guidelines](../.cursor/rules/karpathy-guidelines.mdc): small diffs, explicit checks).
-- **Agent / Cursor:** `@docs/ROADMAP.md` for context; instruct which phase is active (e.g. “Phase 0 only”).
-- **Current focus:** Phase 0 (see [Immediate next actions](#immediate-next-actions)).
+- **Agent / Cursor:** `@docs/ROADMAP.md` for context; state active sub-step (e.g. “Phase 1.3 only”).
+- **Current focus:** Phase 1 Block A (see [Immediate next actions](#immediate-next-actions)).
+- **Builds / dev setup:** [`README.md`](../README.md#android-release-build-on-google-cloud) (not a roadmap phase).
+- **Codebase map:** [Key files](#key-files) (not a roadmap phase).
 
 | Phase | Summary | Status |
 |-------|---------|--------|
-| 0 | WSL dev + GCP `make apk` + phone sideload | in progress (0.1 done) |
-| 0.6 | CI for Android builds (see [Phase 0.6](#phase-06--ci-for-android-builds)) | deferred |
-| 1 | Code read-through | |
+| 1 | Verify API + multipass signing E2E (baby steps) | in progress |
 | 2 | Wallet optional, branding | |
-| 3 | Your verify API (inner proofs) | |
-| 4 | Web integration | |
-| 5 | iOS inner proving (Barretenberg) | |
+| 3 | iOS inner proving (Barretenberg) | |
+| 4 | Aadhaar (Anon Aadhaar Noir + BB) | |
+| 5 | Web integration (member-facing; after Self parity) | |
 | 6 | Security hardening (before beta) | |
-| 7 | Aadhaar (Anon Aadhaar Noir + BB) | |
-| 8 | Global e-IDs ([anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) catalog) | |
+| 7 | Global e-IDs ([anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) catalog) | |
 
 ---
 
@@ -32,17 +32,32 @@ Enable **your web app** to offer identity verification where users:
 2. Prove attributes from an **NFC ID stored on device** via **zero-knowledge inner proofs** on the phone.
 3. Your backend records **verified + nullifier** for a session—**not** raw passport data.
 
-**v1 (Android-first):** Phases 0–4. **iOS inner proving (Phase 5)** is a committed product goal, not optional.
+**v1 (Android-first):** Phases 1–2 for first passport E2E; **Phase 5 web** only after **iOS (Phase 3) + Aadhaar (Phase 4)**—parity with today’s [@Self](../self) coverage (passport + Aadhaar on iOS/Android). Phase 1 dev API is for testing, not member-facing web.
 
 **In scope:** Inner proofs on device → POST `InnerProofPackage` → **your backend verifies sub-proofs + nullifier** → web shows verified. **No blockchain.**
 
-**Out of scope (unless requirements change):** Closed ZKPassport consumer app/SDK, Vocdoni petition infrastructure, mandatory EVM wallet, **on-device outer proof**, **on-chain verifier**. The app skips outer proving on device ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts) ~298); Phase 3 replaces Vocdoni server aggregation with your off-chain verifier.
+**Out of scope (unless requirements change):** Closed ZKPassport consumer app/SDK, **live Vocdoni petition hosts** (e.g. `nomad.dabax.net`—dev-only, not maintained), mandatory EVM wallet, **on-device outer proof**, **on-chain verifier**. The app skips outer proving on device ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts) ~298); Phase 1 replaces Vocdoni **aggregate** with **off-chain inner verify** (no outer proof, no chain). **Test elections** use our session URLs, not upstream petitions.
 
 **Protocol deps (passport / NFC):** `@zkpassport/utils`, `@zkpassport/registry`, `@zkpassport/poseidon2`. **Build dep:** [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) for ACVM JNI in Docker (`make apk`)—not their aggregation server.
 
-**Aadhaar (later, Phase 7):** separate document lane—mAadhaar **QR** (not NFC), Noir circuits from [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir), reuse on-device **ACVM + Barretenberg** like zkPassport. Circom only if Noir path fails (see [Phase 7](#phase-7--aadhaar-anon-aadhaar-noir)).
+**Aadhaar (Phase 4, before web):** separate document lane—mAadhaar **QR** (not NFC), Noir circuits from [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir), reuse on-device **ACVM + Barretenberg** like zkPassport. Circom only if Noir path fails (see [Phase 4](#phase-4--aadhaar-anon-aadhaar-noir)).
 
-**Global e-IDs (later, Phase 8):** use [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) (`national-id.json`) as the country/system backlog—integrate **each** listed electronic ID where a ZK path exists or can be built (zkPassport NFC, Anon Aadhaar–style, or new circuits). Aspirational, catalog-driven; not one release (see [Phase 8](#phase-8--global-e-ids-anon-citizen-map)).
+**Global e-IDs (later, Phase 7):** use [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) (`national-id.json`) as the country/system backlog—integrate **each** listed electronic ID where a ZK path exists or can be built (zkPassport NFC, Anon Aadhaar–style, or new circuits). Aspirational, catalog-driven; not one release (see [Phase 7](#phase-7--global-e-ids-anon-citizen-map)).
+
+### Registry vs verification (blockchain)
+
+Two different uses of “chain” show up in this project—do not conflate them.
+
+| Use | Role in v1 |
+|-----|------------|
+| **zkPassport registry** | **Read-only.** [`ProofGenerator.ts`](../src/services/ProofGenerator.ts) uses `RegistryClient` (`CHAIN_ID`, e.g. Sepolia or mainnet) to download circuit manifests and CSCA/certificates (on-chain registry metadata + CDN/IPFS). Required for passport NFC proving. **Not** your verification product. |
+| **World Republic verification** | **Off-chain.** Session + nullifier on **your API** after inner-proof verify. No publishing user proofs to Ethereum, no on-chain verifier contract for v1. |
+
+**“No blockchain” in this roadmap** refers to the **verification path** above (product goal, Phase 1–5): you do not record “verified” or nullifiers on-chain, and the app skips outer proving on device. It does **not** mean removing `@zkpassport/registry` or `CHAIN_ID`—those stay as protocol infrastructure.
+
+**What the phone posts:** `InnerProofPackage` to your `aggregateUrl` / `submitUrl` (dev API in Phase 1, production verify routes later)—**not** to a chain. **What the phone does not post:** outer proofs on-chain ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts) skips outer on device).
+
+Registry download failures (e.g. Sepolia certificate CDN 404) are **read** problems for circuits/certs; multipass uses CDN then **IPFS by CID** ([`fetchPackagedCertificates.ts`](../src/services/fetchPackagedCertificates.ts)). Mainnet `CHAIN_ID` is not a drop-in fix (circuits `0.16.0` are Sepolia-side).
 
 ---
 
@@ -84,11 +99,14 @@ Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerC
 | Android builds | **`make apk`** (Docker)—not `npm run android` / AVD |
 | APK build host | **Google Cloud Compute Engine (≥16 GB RAM)**—see [APK builds (GCP)](#apk-builds-google-cloud). Use existing GCP project (e.g. verification). Local `make apk` only on **≥16 GB** RAM; **12 GB dev laptop uses cloud** (Docker Barretenberg build OOMs WSL). |
 | Device testing | **Physical Android**, sideload APK (no USB) |
-| CI | Phase 0.6: **GCE VM** (same pattern as APK builds); laptop self-hosted runner not viable on 12 GB RAM |
-| Prover server | **Your off-chain verify API** (inner proofs only) |
-| Blockchain | **Not used** for v1 |
+| CI | Optional: **GCE VM** runner (see [Optional CI](#optional-ci-for-android-builds)) |
+| Verify API | **world-republic** Next.js routes under `app/api/dev/multipass/` (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)); production paths TBD |
+| Prover / verify logic | Off-chain **inner** verify only—port from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) in Phase 1 Block C; no outer-proof server required for v1 |
+| Verification on-chain | **Not used** for v1 — nullifier + verified state on your API only |
+| zkPassport registry | **Read-only** — `CHAIN_ID` + `@zkpassport/registry` for circuits/certs; see [Registry vs verification](#registry-vs-verification-blockchain) |
 | Wallet | Optional / removed for v1 |
 | Security | Private dev OK; **Phase 6** before public beta |
+| Web vs Self | Member-facing **world-republic** verification UI (**Phase 5**) only after **iOS + Aadhaar** in multipass—do not replace [@Self](../self) until coverage matches |
 | Aadhaar ZK | **Primary:** [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir) + existing BB/ACVM JNI. **Fallback:** upstream Circom ([anon-aadhaar](https://github.com/anon-aadhaar/anon-aadhaar)) or Self’s Circom fork—only if Noir integration blocked |
 | Aadhaar input | mAadhaar QR upload (not zkPassport NFC) |
 | Global e-ID backlog | [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) `public/national-id.json`; live map at [anon-citizen-map.vercel.app](https://anon-citizen-map.vercel.app) |
@@ -119,47 +137,13 @@ npm run typecheck
 
 ### APK builds (Google Cloud)
 
-**Why:** `docker/apk.Dockerfile` compiles Barretenberg (arm64 + x86) + Gradle; peak RAM often **12–20 GB+**. A **16 GB** GCE VM is the primary build path (same GCP account as verification is fine).
-
-| Spec | Value |
-|------|--------|
-| Machine type | **e2-standard-4** (4 vCPU, 16 GB RAM) or larger |
-| OS | Ubuntu 22.04 LTS (x86_64) |
-| Boot disk | **≥100 GB** balanced PD (Docker layers are large) |
-| Network | Allow **TCP 22** (SSH) from your IP or IAP |
-
-| Step | Action |
-|------|--------|
-| 1 | GCP Console → Compute Engine → VM instances → Create (see step-by-step in repo discussions or runbook below) |
-| 2 | SSH in; install: `sudo apt-get update && sudo apt-get install -y docker.io git make && sudo systemctl enable --now docker` |
-| 3 | `git clone https://github.com/worldrepublicorg/multipass.git && cd multipass && make apk` |
-| 4 | First build: plan **1–2 hours**. Re-run after native or dependency changes. |
-| 5 | Download APK: `gcloud compute scp multipass-build:~/multipass/out/app-release.apk . --zone=ZONE` or `scp` with external IP |
-| 6 | **Stop or delete** the VM when idle to stop billing |
-
-**gcloud one-liner (optional):** after `gcloud auth login` and project set — create `multipass-build`, then SSH via `gcloud compute ssh multipass-build --zone=ZONE`.
-
-Makefile auto-clones [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) inside the Docker build.
-
-**Install on phone (no USB):** Copy APK to device → open → install. Optional: wireless `adb install`.
+Use a **16 GB** GCE VM (`e2-standard-4`, Ubuntu 22.04, ≥100 GB disk). Full checklist (private repo tarball, Docker **buildx**, BuildKit, troubleshooting): **[README → Android release build on Google Cloud](../README.md#android-release-build-on-google-cloud)**.
 
 ---
 
-## Phase 0 — Dev environment and baseline app
+## Optional: CI for Android builds
 
-| Step | Action | Verify |
-|------|--------|--------|
-| 0.1 | `npm install --legacy-peer-deps` | `npm test`, `npm run typecheck` |
-| 0.2 | `make apk` on [GCE VM](#apk-builds-google-cloud) (or local only if ≥16 GB RAM) | `out/app-release.apk` on build host; download to laptop |
-| 0.3 | Sideload on physical Android | App opens |
-| 0.4 | Optional: NFC ID scan | Works on hardware |
-| 0.5 | Keep this doc’s dev section accurate | Repeatable |
-
----
-
-## Phase 0.6 — CI for Android builds
-
-**Deferred** on the 12 GB dev laptop (same OOM risk as local `make apk`). Options when needed:
+When repeat `make apk` runs are painful, automate on a cloud VM:
 
 | Option | Notes |
 |--------|--------|
@@ -171,54 +155,89 @@ Release signing secrets only needed for store-style builds ([`releasing.md`](rel
 
 ---
 
-## Phase 1 — Understand the codebase
+## Phase 1 — Verification API (world-republic Next.js)
 
-Read: [`App.tsx`](../App.tsx), [`TabNavigator`](../src/navigation/TabNavigator.tsx), [`SigningNavigator`](../src/navigation/SigningNavigator.tsx), [`requestLinks.ts`](../src/utils/requestLinks.ts), [`ServerClient.ts`](../src/services/ServerClient.ts), [`ProofGenerator.ts`](../src/services/ProofGenerator.ts).
+**Goal:** Multipass completes a **test verification session** via deeplink or pasted URL—POST `InnerProofPackage` to **our** API, receive **nullifier**, no outer proof, no blockchain.
 
-**Verify:** Explain Scanner URL → network → server payload today.
+**Where (monorepo):** Parent app [world-republic](https://github.com/worldrepublicorg/world-republic) (sibling of `multipass/`):
+
+| Piece | Path (from repo root) |
+|--------|------------------------|
+| API routes | `app/api/dev/multipass/` |
+| Dev test UI | e.g. `app/[lang]/dev/multipass/page.tsx` (unlisted, **no auth**)—creates session, shows **copy link** for phone testing |
+| Session store | Start in-memory; Postgres when needed |
+
+**Compatibility:** Early steps return Vocdoni-shaped JSON (`aggregateUrl`, `kind: vocdoni-passport-request`, `query`) so multipass changes stay minimal. Rename to `submitUrl` / `verifyUrl` in step 1.15.
+
+**Dev testing:** Scanner **paste** first; **deeplink** at 1.9. No public QR or App Links until [Phase 2](#phase-2--mobile-product-polish). Phone must reach dev host (`NEXTAUTH_URL` / tunnel / deploy URL).
+
+**Not used:** Vocdoni public petitions, `vocdoni.link` production flows, self-hosting full vocdoni-passport-prover aggregation (outer proof) unless a sub-step explicitly needs it.
+
+### Block A — API only (`curl` / browser)
+
+Finish each row before the next. Implement in **world-republic** only—no multipass edits.
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.1 | `GET /api/dev/multipass/health` → `{ "status": "ok" }` | `curl` locally |
+| 1.2 | `POST /api/dev/multipass/sessions` → `{ id, verifyUrl }` | `curl` POST; `curl GET verifyUrl` |
+| 1.3 | `GET verifyUrl` returns static `ProofRequestPayload` (`aggregateUrl` → our submit route, simple `query` e.g. `nationality: { disclose: true }`) | JSON validates against [`ServerClient`](../src/services/ServerClient.ts) expectations |
+| 1.4 | `POST` to `aggregateUrl` (**stub**): accept body, return `{ nullifier, name }` without crypto | `curl` POST `{}` → 200 |
+| 1.5 | Dev test page: button “Create test session” → display `verifyUrl` (copy) | Browser only |
+
+### Block B — Phone (minimal multipass changes)
+
+One APK rebuild per sub-step. Use **paste** in Scanner first; **deeplink** at 1.9.
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.6 | Paste `verifyUrl` from dev page → **ServerCheck** passes | Health OK |
+| 1.7 | Same → through disclosure (no code change if 1.6 OK) | UI through **DisclosureReview** |
+| 1.8 | Full flow with 1.4 stub POST (on-device prove + stub upload) | **SigningSuccess** + history row |
+| 1.9 | Deeplink: open `verifyUrl` via intent / tap saved link | Same as 1.8 |
+
+Mobile touch points (when needed): [`requestLinks.ts`](../src/utils/requestLinks.ts), [`ServerClient.ts`](../src/services/ServerClient.ts), signing screens—**only** if default hosts still point at Vocdoni; often just use dev `verifyUrl` as-is.
+
+**Optional in Block B (before 1.8 retest):** drop `walletAddress` in [`ProofProgressScreen`](../src/screens/signing/ProofProgressScreen.tsx) so proofs omit `bind_evm`—same change as [Phase 2b](#phase-2--mobile-product-polish).
+
+### Block C — Real verify (still incremental)
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.10 | Stub POST logs `disclosures.length` / body size; still 200 | Server logs; phone unchanged |
+| 1.11 | Verify one inner sub-proof; reject invalid bodies | `curl` bad body → 4xx |
+| 1.12 | Full inner verify + session nullifier dedup | Second sign → duplicate rejected |
+| 1.13 | Port remaining verify from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) | E2E with real crypto |
+
+### Block D — API shape cleanup
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.14 | `GET /api/dev/multipass/sessions/:id/status` for polling | Dev test page shows verified |
+| 1.15 | Rename `aggregateUrl` → `submitUrl` (+ dual-read in multipass) | E2E after rename |
+
+**Phase 1 done when:** 1.8 (stub) and 1.12 (real verify) pass on a physical Android device with a dev session link.
 
 ---
 
-## Phase 2 — First product changes (mobile)
+## Phase 2 — Mobile product polish
+
+**When:** After Phase 1 Block B (1.8), or in parallel once 1.6 passes. Cosmetic and wallet UX—**not** required for first signing E2E.
 
 | Step | Change | Verify |
 |------|--------|--------|
 | 2a | Optional wallet ([`App.tsx`](../App.tsx), [`WalletContext`](../src/contexts/WalletContext.tsx)) | Main without mnemonic |
-| 2b | No `walletAddress` in signing ([`ProofProgressScreen`](../src/screens/signing/ProofProgressScreen.tsx)) | No `bind_evm` |
+| 2b | No `walletAddress` in signing ([`ProofProgressScreen`](../src/screens/signing/ProofProgressScreen.tsx)) | No `bind_evm`; retest 1.8 on dev API |
 | 2c | Branding | Your app name |
-| 2d | Links / manifest | Your test URL |
+| 2d | App Links host for deeplinks (optional) | HTTPS opens signing after 1.9 paste works |
 
-**Verify:** `npm test` + `make apk` + physical device.
-
----
-
-## Phase 3 — Your verification backend
-
-**Goal:** POST `InnerProofPackage` to **your** API—no outer proof.
-
-- `POST /api/verification-sessions` → `{ id, verifyUrl }`
-- `GET {verifyUrl}` → request JSON (`verifyUrl` / `submitUrl` instead of `aggregateUrl`)
-- `POST /api/verify` → inner package → `{ ok, nullifier }`
-
-Mobile: [`ServerClient.ts`](../src/services/ServerClient.ts), [`ProofProgressScreen`](../src/screens/signing/ProofProgressScreen.tsx), [`ServerCheckScreen`](../src/screens/signing/ServerCheckScreen.tsx).
-
-Server verify logic: port from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) verify paths.
-
-**Verify:** E2E on phone; nullifier stored; duplicate rejected.
+**Verify:** `npm test` + `make apk` + physical device against dev session URL from Phase 1.
 
 ---
 
-## Phase 4 — Web app integration
+## Phase 3 — iOS inner proving parity
 
-| Step | Verify |
-|------|--------|
-| 4a | QR / link opens signing |
-| 4b | Poll shows verified |
-| 4c | Optional App Links |
-
----
-
-## Phase 5 — iOS inner proving parity
+**When:** After Phase 1 passport E2E on Android (1.12) and Phase 2 polish as needed. Required before [Phase 5](#phase-5--web-app-integration) (Self already ships iOS passport proofs).
 
 **Not in scope:** outer proof / on-chain (see [Future-only](#future-only-outer-proof--on-chain)).
 
@@ -233,48 +252,21 @@ Server verify logic: port from [vocdoni-passport-prover](https://github.com/vocd
 
 | Step | Work |
 |------|------|
-| 5.1 | Cross-compile Barretenberg for iOS |
-| 5.2 | RN native module matching [`Barretenberg.ts`](../src/native/Barretenberg.ts) |
-| 5.3 | CRS on iOS |
-| 5.4 | Remove iOS guard; test on iPhone + NFC |
-| 5.5 | Mac CI / TestFlight when ready |
+| 3.1 | Cross-compile Barretenberg for iOS |
+| 3.2 | RN native module matching [`Barretenberg.ts`](../src/native/Barretenberg.ts) |
+| 3.3 | CRS on iOS |
+| 3.4 | Remove iOS guard; test on iPhone + NFC |
+| 3.5 | Mac CI / TestFlight when ready |
 
-**Verify:** Inner proofs on iPhone; Phase 3 off-chain flow works.
-
----
-
-## Future-only: outer proof / on-chain
-
-Only if you later need **on-chain** verification. Not required for Phases 3–5.
-
-| Approach | Off-chain web login? |
-|----------|----------------------|
-| Inner proofs + your API | **Yes** |
-| iOS inner proofs | **Yes** |
-| Outer + on-chain | **No** |
+**Verify:** Inner proofs on iPhone; Phase 1 off-chain flow works.
 
 ---
 
-## Phase 6 — Security checklist (before public or beta)
+## Phase 4 — Aadhaar (Anon Aadhaar Noir)
 
-| Area | Actions |
-|------|---------|
-| Self-hosted runner | Restrict fork PRs; consider cloud VM; remove when unused |
-| Secrets | Minimize on runner; rotate keystores |
-| API | TLS, TTL, rate limits, proof validation, no PII in logs |
-| Mobile | Release signing; distribution policy |
-| App | Deep links, network security |
-| AGPL | Source offer if distributing APK |
-| Aadhaar (if Phase 7 shipped) | QR handling, separate verifier, maintainer go/no-go; no raw QR in logs |
-| Global e-IDs (if Phase 8) | Per-`documentType` verify; catalog-driven expectations; no false “supported” for Lane D |
+**When:** After passport path + **iOS inner proving (Phase 3)** on Android at minimum; iOS Aadhaar E2E in step 4.5. Run [Phase 6](#phase-6--security-checklist-before-public-or-beta) checklist before shipping Aadhaar to real users.
 
----
-
-## Phase 7 — Aadhaar (Anon Aadhaar Noir)
-
-**When:** After the passport path is stable (Phases 3–5). Run Phase 6 checklist for any build that ships Aadhaar.
-
-**Goal:** Indian users prove attributes from **mAadhaar QR** on-device, POST a proof to **your** verify API (same session/nullifier model as Phase 3)—**not** raw QR bytes. No blockchain for v1.
+**Goal:** Indian users prove attributes from **mAadhaar QR** on-device, POST a proof to **your** verify API (same session/nullifier model as Phase 1)—**not** raw QR bytes. No blockchain for v1.
 
 **Primary stack (preferred):** [anon-aadhaar/anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir)—Noir implementation of Anon Aadhaar, proved with **Barretenberg** (Ultra Honk). Reuse existing mobile infra: [`AcvmWitness`](../src/native/AcvmWitness.ts) + [`Barretenberg.ts`](../src/native/Barretenberg.ts) / [`ProofGenerator.ts`](../src/services/ProofGenerator.ts) pattern (separate circuit artifacts and API payload from zkPassport `InnerProofPackage`).
 
@@ -282,18 +274,18 @@ Only if you later need **on-chain** verification. Not required for Phases 3–5.
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 7.1 | Spike: compile anon-aadhaar-noir circuits; align **Noir/BB** versions with Android JNI build (repo pins Noir **0.38** / BB **0.61**—may differ from zkPassport `0.16.0` registry) | `nargo test` + one proof on desktop BB |
-| 7.2 | QR onboarding: mAadhaar QR capture (photo/screenshot); parse with `@anon-aadhaar/core` helpers (see anon-aadhaar-noir `/js` or upstream core) | Parse test vectors; expiry/timestamp checks |
-| 7.3 | Mobile prove: witness (ACVM) + `circuitProve` for anon-aadhaar-noir bytecode/vkey; ship CRS/artifacts in app or cache | Proof on physical Android |
-| 7.4 | Backend: off-chain verify (BB/Ultra Honk verifier for Noir proofs); session + nullifier; **separate** endpoint or `documentType` from passport verify | E2E with Phase 4-style web poll |
-| 7.5 | iOS: same BB port as Phase 5, then Aadhaar circuits | iPhone E2E |
-| 7.6 | **Gate:** maintainer warning—noir repo is **not** production-safe yet; track audits and [PSE docs](https://documentation.anon-aadhaar.pse.dev/docs/intro) before real Aadhaar data | Written go/no-go |
-| 7.7 | **Fallback trigger:** if 7.1/7.3 fail (version lock, circuit gap, perf), switch to Circom path (7.8) | Document decision in repo |
-| 7.8 | *(Fallback only)* Circom prove (e.g. snarkjs / Mopro) + Groth16 verify on API; optional reference: Self `circuits/` + `new-common/src/documents/aadhaar/` | E2E on fallback stack |
+| 4.1 | Spike: compile anon-aadhaar-noir circuits; align **Noir/BB** versions with Android JNI build (repo pins Noir **0.38** / BB **0.61**—may differ from zkPassport `0.16.0` registry) | `nargo test` + one proof on desktop BB |
+| 4.2 | QR onboarding: mAadhaar QR capture (photo/screenshot); parse with `@anon-aadhaar/core` helpers (see anon-aadhaar-noir `/js` or upstream core) | Parse test vectors; expiry/timestamp checks |
+| 4.3 | Mobile prove: witness (ACVM) + `circuitProve` for anon-aadhaar-noir bytecode/vkey; ship CRS/artifacts in app or cache | Proof on physical Android |
+| 4.4 | Backend: off-chain verify (BB/Ultra Honk verifier for Noir proofs); session + nullifier; **separate** endpoint or `documentType` from passport verify | E2E via Phase 1 dev session (paste/deeplink)—not member web yet |
+| 4.5 | iOS: same BB port as Phase 3, then Aadhaar circuits | iPhone E2E |
+| 4.6 | **Gate:** maintainer warning—noir repo is **not** production-safe yet; track audits and [PSE docs](https://documentation.anon-aadhaar.pse.dev/docs/intro) before real Aadhaar data | Written go/no-go |
+| 4.7 | **Fallback trigger:** if 4.1/4.3 fail (version lock, circuit gap, perf), switch to Circom path (4.8) | Document decision in repo |
+| 4.8 | *(Fallback only)* Circom prove (e.g. snarkjs / Mopro) + Groth16 verify on API; optional reference: Self `circuits/` + `new-common/src/documents/aadhaar/` | E2E on fallback stack |
 
-**Not in scope for Phase 7 unless requirements change:** Self protocol / on-chain `IdentityRegistryAadhaar`, TEE-remote proving, treating Aadhaar as zkPassport NFC.
+**Not in scope for Phase 4 unless requirements change:** Self protocol / on-chain `IdentityRegistryAadhaar`, TEE-remote proving, treating Aadhaar as zkPassport NFC.
 
-India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citizen-map) ([anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) → `India` / Aadhaar).
+India is catalog entry **Lane B** in [Phase 7](#phase-7--global-e-ids-anon-citizen-map) ([anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) → `India` / Aadhaar).
 
 ### References (Aadhaar)
 
@@ -306,16 +298,59 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 | Mopro mobile benchmarks (Noir AA) | https://zkmopro.org/docs/performance/ | Noir anon-aadhaar on Android/iOS reference timings |
 | Self (Circom fallback / UX reference only) | `../self` | `app/src/screens/documents/aadhaar/`, `new-common/src/documents/aadhaar/`, `circuits/circuits/register/register_aadhaar.circom`; uses TEE for prove—**not** our default |
 | Our passport prover pattern | [`ProofGenerator.ts`](../src/services/ProofGenerator.ts), [`Barretenberg.ts`](../src/native/Barretenberg.ts) | Template for second proof pipeline |
-| **Anon citizen map (catalog)** | https://github.com/anon-aadhaar/anon-citizen-map | World map + `national-id.json` per-country `system` / `algorithm`; integration backlog for Phase 8 |
+| **Anon citizen map (catalog)** | https://github.com/anon-aadhaar/anon-citizen-map | World map + `national-id.json` per-country `system` / `algorithm`; integration backlog for Phase 7 |
 | Citizen map data (raw JSON) | https://raw.githubusercontent.com/anon-aadhaar/anon-citizen-map/main/public/national-id.json | Machine-readable catalog to vendor or sync in-repo |
 
 ---
 
-## Phase 8 — Global e-IDs (anon-citizen-map)
+## Phase 5 — Web app integration
 
-**When:** After Phase 7 proves the **non–ICAO** pattern (QR / national signature → Noir + BB → off-chain verify). Passport/NFC countries already overlap zkPassport (Phases 0–5).
+**When:** After **Phase 3 (iOS passport)** and **Phase 4 (Aadhaar)**—multipass must match [@Self](../self) platform + document coverage before **world-republic** replaces Self for member verification. Phase 1 dev sessions remain the test harness until then.
 
-**Goal:** Work through the [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) catalog and **try to integrate every listed electronic ID** where cryptography is known and mobile ZK is feasible—same privacy bar as Phase 3/7 (proof + nullifier on your API, no raw ID payloads in logs).
+Builds on Phase 1 API → **test elections** and member-facing flows (not the dev test page).
+
+| Step | Verify |
+|------|--------|
+| 5a | Production session API + QR / link opens signing |
+| 5b | Poll shows verified (uses 1.14-style status) |
+| 5c | App Links / universal links for multipass host |
+
+---
+
+## Future-only: outer proof / on-chain
+
+Only if you later need **on-chain** verification. Not required for Phases 2–5.
+
+| Approach | Off-chain web login? |
+|----------|----------------------|
+| Inner proofs + your API | **Yes** |
+| iOS inner proofs | **Yes** |
+| Outer + on-chain | **No** |
+
+---
+
+## Phase 6 — Security checklist (before public or beta)
+
+**When:** Before **Phase 5** member-facing web goes to beta/public (and for any Aadhaar build with real user data).
+
+| Area | Actions |
+|------|---------|
+| Self-hosted runner | Restrict fork PRs; consider cloud VM; remove when unused |
+| Secrets | Minimize on runner; rotate keystores |
+| API | TLS, TTL, rate limits, proof validation, no PII in logs |
+| Mobile | Release signing; distribution policy |
+| App | Deep links, network security |
+| AGPL | Source offer if distributing APK |
+| Aadhaar (if Phase 4 shipped) | QR handling, separate verifier, maintainer go/no-go; no raw QR in logs |
+| Global e-IDs (if Phase 7) | Per-`documentType` verify; catalog-driven expectations; no false “supported” for Lane D |
+
+---
+
+## Phase 7 — Global e-IDs (anon-citizen-map)
+
+**When:** After Phase 4 proves the **non–ICAO** pattern (QR / national signature → Noir + BB → off-chain verify). Passport/NFC countries already overlap zkPassport (Phases 1–3).
+
+**Goal:** Work through the [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) catalog and **try to integrate every listed electronic ID** where cryptography is known and mobile ZK is feasible—same privacy bar as Phase 1/4 (proof + nullifier on your API, no raw ID payloads in logs).
 
 **Catalog:** [anon-citizen-map.vercel.app](https://anon-citizen-map.vercel.app) — per-country `system`, `algorithm`, population ([`public/national-id.json`](https://github.com/anon-aadhaar/anon-citizen-map/blob/main/public/national-id.json)). Data is community-sourced; expect gaps (“Not publicly specified”) and open [GitHub issues](https://github.com/anon-aadhaar/anon-citizen-map/issues) for corrections.
 
@@ -323,20 +358,20 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 
 | Lane | Examples from catalog | App work |
 |------|----------------------|----------|
-| **A — zkPassport NFC** | EU eID (Germany CIE, Estonia e-ID, Spain DNIe, …), ICAO ePassport where applicable | Already Phase 0–5; confirm country in registry / NFC UX |
-| **B — Anon Aadhaar family** | India (Aadhaar, RSA/SHA-256) | Phase 7 ([anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir)) |
+| **A — zkPassport NFC** | EU eID (Germany CIE, Estonia e-ID, Spain DNIe, …), ICAO ePassport where applicable | Phases 1–3 path; confirm country in registry / NFC UX |
+| **B — Anon Aadhaar family** | India (Aadhaar, RSA/SHA-256) | Phase 4 ([anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir)) |
 | **C — New ZK circuit** | QR/card systems with documented algo (e.g. RSA/ECDSA/SM2 entries) but no upstream Noir/Circom yet | Spike → Noir preferred (BB reuse) or Circom fallback; contribute upstream to anon-aadhaar org when possible |
 | **D — Blocked / research** | “Not publicly specified”, QES-only, no citizen-readable credential | Document in backlog; do not ship until spec exists |
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 8.1 | Import or sync `national-id.json`; generate internal backlog (country → lane A/B/C/D) | Checklist file or issue template with all catalog entries |
-| 8.2 | Sort backlog: population, algorithm clarity, overlap with zkPassport registry | Prioritized top-N countries |
-| 8.3 | **Lane A:** audit map entries vs `@zkpassport/registry` coverage; fix UX/docs for supported NFC IDs | Matrix: country → supported / unsupported |
-| 8.4 | **Lane B:** complete Phase 7 (India) | Aadhaar E2E |
-| 8.5 | **Lane C loop** (repeat per country): spec credential format → proof pipeline → `documentType` on verify API → mobile onboarding | One country E2E per iteration |
-| 8.6 | Contribute back: PRs/issues on [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) (data fixes) and anon-aadhaar circuits/SDKs when adding a country | Upstream link in changelog |
-| 8.7 | App UX: country/system picker driven by catalog + support status (supported / coming / unavailable) | User sees accurate expectations |
+| 7.1 | Import or sync `national-id.json`; generate internal backlog (country → lane A/B/C/D) | Checklist file or issue template with all catalog entries |
+| 7.2 | Sort backlog: population, algorithm clarity, overlap with zkPassport registry | Prioritized top-N countries |
+| 7.3 | **Lane A:** audit map entries vs `@zkpassport/registry` coverage; fix UX/docs for supported NFC IDs | Matrix: country → supported / unsupported |
+| 7.4 | **Lane B:** complete Phase 4 (India) | Aadhaar E2E |
+| 7.5 | **Lane C loop** (repeat per country): spec credential format → proof pipeline → `documentType` on verify API → mobile onboarding | One country E2E per iteration |
+| 7.6 | Contribute back: PRs/issues on [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) (data fixes) and anon-aadhaar circuits/SDKs when adding a country | Upstream link in changelog |
+| 7.7 | App UX: country/system picker driven by catalog + support status (supported / coming / unavailable) | User sees accurate expectations |
 
 **Scope honesty:** “All” IDs in the map is a **long-running** objective (~40+ countries in JSON today, growing). Ship incrementally; Lane C may require net-new cryptography (SM2, GOST, etc.) beyond current BB/Noir deps.
 
@@ -359,10 +394,14 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 | Concern | Location |
 |---------|----------|
 | App entry | [`App.tsx`](../App.tsx) |
+| Signing flow | [`SigningNavigator`](../src/navigation/SigningNavigator.tsx), [`requestLinks.ts`](../src/utils/requestLinks.ts) |
 | Inner proofs (passport) | [`ProofGenerator.ts`](../src/services/ProofGenerator.ts) |
-| Aadhaar (planned) | Phase 7 — [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir) |
-| Global e-ID catalog | Phase 8 — [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) `national-id.json` |
-| Server I/O | [`ServerClient.ts`](../src/services/ServerClient.ts) |
+| Verify API (Phase 1) | `world-republic` → `app/api/dev/multipass/` |
+| Dev session UI (Phase 1) | `world-republic` → `app/[lang]/dev/multipass/` (unlisted, no auth) |
+| Aadhaar (planned) | Phase 4 — [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir) |
+| Member web (planned) | Phase 5 — after iOS + Aadhaar; keep [@Self](../self) until then |
+| Global e-ID catalog | Phase 7 — [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) `national-id.json` |
+| Server I/O (multipass) | [`ServerClient.ts`](../src/services/ServerClient.ts) |
 | APK build | [`Makefile`](../Makefile), [`docker/apk.Dockerfile`](../docker/apk.Dockerfile) |
 | CI Android | [`android-build.yml`](../.github/workflows/android-build.yml) |
 
@@ -370,11 +409,12 @@ India is catalog entry **Lane B** in [Phase 8](#phase-8--global-e-ids-anon-citiz
 
 ## Immediate next actions
 
-1. ~~Phase 0.1~~ — done on WSL (`npm test`, `npm run typecheck`).
-2. **Phase 0.2** — GCE `e2-standard-4` → `make apk` → download `out/app-release.apk` to laptop.
-3. **Phase 0.3** — sideload on physical Android (app opens).
-4. Phase 1 — read-through (can parallelize after 0.3).
-5. Phase 0.6 — CI on cloud VM when repeat builds hurt; skip laptop runner.
-6. Phase 2a — optional wallet.
+1. **Phase 1.1** — `GET /api/dev/multipass/health` in world-republic (`curl`).
+2. **Phase 1.2–1.5** — sessions + request JSON + stub POST + dev test page (browser).
+3. **Phase 1.6–1.8** — paste dev `verifyUrl` on phone → signing success (stub).
+4. **Phase 2b** (or during 1.8) — drop `walletAddress` / `bind_evm`; retest 1.8.
+5. **Phase 1.10–1.12** — real verify + nullifier dedup.
+6. Phase 2a/2c branding when 1.12 is green.
+7. **Later:** Phase 3 iOS → Phase 4 Aadhaar → **Phase 5** member web (replace Self for verification).
 
-For Cursor: `@docs/ROADMAP.md` and state active step (e.g. “Phase 0.2 GCP only”).
+For Cursor: `@docs/ROADMAP.md` and state active sub-step (e.g. “Phase 1.3 only”).

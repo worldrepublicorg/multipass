@@ -77,7 +77,7 @@ make apk-install            # USB: install on connected device
 
 **APK size:** Release builds package **arm64-v8a only** (~50 MB typical). Upstream [Vocdoni v1.0.0 APK](https://github.com/vocdoni/vocdoni-passport/releases/tag/v1.0.0) can be larger if it includes more CPU ABIs—that is not required for physical phones.
 
-**Runtime:** The installed app needs **no `.env` file**. ID data stays in **encrypted on-device storage**; zkPassport **registry/CRS** are fetched from public URLs and cached under the app documents directory. A backend is only involved when completing a **signing request** (QR/link provides `aggregateUrl`); see ROADMAP Phase 3 for World Republic’s verifier.
+**Runtime:** The installed app needs **no `.env` file**. ID data stays in **encrypted on-device storage**; zkPassport **registry/CRS** are fetched from public URLs and cached under the app documents directory. A backend is only involved when completing a **signing request** (QR/link provides `aggregateUrl`); see ROADMAP Phase 1 for World Republic’s verifier.
 
 #### iOS Build
 

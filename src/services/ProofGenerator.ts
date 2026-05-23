@@ -44,6 +44,7 @@ import {
   writeCachedManifest,
   writeCachedPackagedCircuit,
 } from './RegistryCache';
+import { fetchPackagedCertificates } from './fetchPackagedCertificates';
 
 const CHAIN_ID = 11155111;
 const CIRCUIT_VERSION = '0.16.0';
@@ -382,7 +383,7 @@ async function ensureCertificates(registry: RegistryClient, certRoot: string): P
   }
   let packagedCerts: any = await readCachedCertificates(certRoot);
   if (!packagedCerts?.certificates?.length) {
-    packagedCerts = await registry.getCertificates(certRoot, { validate: false });
+    packagedCerts = await fetchPackagedCertificates(registry, certRoot);
     await writeCachedCertificates(certRoot, packagedCerts);
   }
   sessionCertificatesCache.set(certRoot, packagedCerts);
