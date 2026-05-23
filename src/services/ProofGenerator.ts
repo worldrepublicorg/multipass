@@ -47,7 +47,7 @@ import {
 import { fetchPackagedCertificates } from './fetchPackagedCertificates';
 
 const CHAIN_ID = 11155111;
-const CIRCUIT_VERSION = '0.16.0';
+const CIRCUIT_VERSION = '0.18.0';
 const TIMING_TAG = '[ProofTiming]';
 
 type ProgressFn = (step: string, detail: string) => void;
