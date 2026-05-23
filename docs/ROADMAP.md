@@ -7,8 +7,8 @@ Standalone mobile app (derived from [Vocdoni Passport](https://github.com/vocdon
 - **Baby steps.** One route or one mobile change per step; **verify before the next** (`curl` → browser → phone paste → deeplink).
 - **Phase 1 = verify API + signing E2E.** Public Vocdoni test petitions are **not** available (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)). **Phase 2** = mobile polish. **Phase 5 web** waits for **Phase 3 iOS + Phase 4 Aadhaar** ([@Self](../self) parity)—see phase table.
 - **Verify after each step** ([Karpathy guidelines](../.cursor/rules/karpathy-guidelines.mdc): small diffs, explicit checks).
-- **Agent / Cursor:** `@docs/ROADMAP.md` for context; state active sub-step (e.g. “Phase 1.3 only”).
-- **Current focus:** Phase 1 Block A (see [Immediate next actions](#immediate-next-actions)).
+- **Agent / Cursor:** `@docs/ROADMAP.md` for context; state active sub-step (e.g. “Phase 1.6 only”).
+- **Current focus:** Phase 1 Block B — phone paste → signing (see [Immediate next actions](#immediate-next-actions)).
 - **Builds / dev setup:** [`README.md`](../README.md#android-release-build-on-google-cloud) (not a roadmap phase).
 - **Codebase map:** [Key files](#key-files) (not a roadmap phase).
 
@@ -165,7 +165,7 @@ Release signing secrets only needed for store-style builds ([`releasing.md`](rel
 |--------|------------------------|
 | API routes | `app/api/dev/multipass/` |
 | Dev test UI | e.g. `app/[lang]/dev/multipass/page.tsx` (unlisted, **no auth**)—creates session, shows **copy link** for phone testing |
-| Session store | Start in-memory; Postgres when needed |
+| Session store | Postgres (`multipass_dev_sessions`); 24h TTL |
 
 **Compatibility:** Early steps return Vocdoni-shaped JSON (`aggregateUrl`, `kind: vocdoni-passport-request`, `query`) so multipass changes stay minimal. Rename to `submitUrl` / `verifyUrl` in step 1.15.
 
@@ -173,17 +173,9 @@ Release signing secrets only needed for store-style builds ([`releasing.md`](rel
 
 **Not used:** Vocdoni public petitions, `vocdoni.link` production flows, self-hosting full vocdoni-passport-prover aggregation (outer proof) unless a sub-step explicitly needs it.
 
-### Block A — API only (`curl` / browser)
+### Block A — done (world-republic API)
 
-Finish each row before the next. Implement in **world-republic** only—no multipass edits.
-
-| Step | Action | Verify |
-|------|--------|--------|
-| 1.1 | `GET /api/dev/multipass/health` → `{ "status": "ok" }` | `curl` locally |
-| 1.2 | `POST /api/dev/multipass/sessions` → `{ id, verifyUrl }` | `curl` POST; `curl GET verifyUrl` |
-| 1.3 | `GET verifyUrl` returns static `ProofRequestPayload` (`aggregateUrl` → our submit route, simple `query` e.g. `nationality: { disclose: true }`) | JSON validates against [`ServerClient`](../src/services/ServerClient.ts) expectations |
-| 1.4 | `POST` to `aggregateUrl` (**stub**): accept body, return `{ nullifier, name }` without crypto | `curl` POST `{}` → 200 |
-| 1.5 | Dev test page: button “Create test session” → display `verifyUrl` (copy) | Browser only |
+Implemented and verified (`curl` / browser): health, sessions, proof-request JSON, stub aggregate (with request metrics logging), dev test page + session status polling. Sessions persisted in Postgres (`multipass_dev_sessions`).
 
 ### Block B — Phone (minimal multipass changes)
 
@@ -204,7 +196,6 @@ Mobile touch points (when needed): [`requestLinks.ts`](../src/utils/requestLinks
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 1.10 | Stub POST logs `disclosures.length` / body size; still 200 | Server logs; phone unchanged |
 | 1.11 | Verify one inner sub-proof; reject invalid bodies | `curl` bad body → 4xx |
 | 1.12 | Full inner verify + session nullifier dedup | Second sign → duplicate rejected |
 | 1.13 | Port remaining verify from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) | E2E with real crypto |
@@ -213,7 +204,6 @@ Mobile touch points (when needed): [`requestLinks.ts`](../src/utils/requestLinks
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 1.14 | `GET /api/dev/multipass/sessions/:id/status` for polling | Dev test page shows verified |
 | 1.15 | Rename `aggregateUrl` → `submitUrl` (+ dual-read in multipass) | E2E after rename |
 
 **Phase 1 done when:** 1.8 (stub) and 1.12 (real verify) pass on a physical Android device with a dev session link.
@@ -409,12 +399,11 @@ Only if you later need **on-chain** verification. Not required for Phases 2–5.
 
 ## Immediate next actions
 
-1. **Phase 1.1** — `GET /api/dev/multipass/health` in world-republic (`curl`).
-2. **Phase 1.2–1.5** — sessions + request JSON + stub POST + dev test page (browser).
-3. **Phase 1.6–1.8** — paste dev `verifyUrl` on phone → signing success (stub).
-4. **Phase 2b** (or during 1.8) — drop `walletAddress` / `bind_evm`; retest 1.8.
-5. **Phase 1.10–1.12** — real verify + nullifier dedup.
-6. Phase 2a/2c branding when 1.12 is green.
-7. **Later:** Phase 3 iOS → Phase 4 Aadhaar → **Phase 5** member web (replace Self for verification).
+1. **Phase 1.6–1.8** — paste dev `verifyUrl` on phone (GCP APK + IPFS cert fallback) → signing success (stub).
+2. **Phase 2b** (optional during 1.8) — drop `walletAddress` / `bind_evm`; retest 1.8.
+3. **Phase 1.11–1.12** — real verify + nullifier dedup.
+4. **Phase 1.15** — rename `aggregateUrl` → `submitUrl` when convenient.
+5. Phase 2a/2c branding when 1.12 is green.
+6. **Later:** Phase 3 iOS → Phase 4 Aadhaar → **Phase 5** member web (replace Self for verification).
 
-For Cursor: `@docs/ROADMAP.md` and state active sub-step (e.g. “Phase 1.3 only”).
+For Cursor: `@docs/ROADMAP.md` and state active sub-step (e.g. “Phase 1.6 only”).

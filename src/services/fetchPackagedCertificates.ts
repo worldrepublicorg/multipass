@@ -8,6 +8,21 @@ export type PackagedCertificatesFile = {
   version?: number;
 };
 
+/** IPFS blobs use `certificates_serialised`; CDN/registry SDK uses `serialised`. */
+export function normalizePackagedCertificates(data: unknown): unknown {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+  const raw = data as Record<string, unknown>;
+  if (Array.isArray(raw.serialised)) {
+    return data;
+  }
+  if (Array.isArray(raw.certificates_serialised)) {
+    return { ...raw, serialised: raw.certificates_serialised };
+  }
+  return data;
+}
+
 function assertPackagedCertificatesFile(
   data: unknown,
   source: string,
@@ -38,9 +53,9 @@ async function fetchPackagedCertificatesFromUrl(url: string): Promise<PackagedCe
     throw new Error(`Failed to fetch packaged certificates from ${url}: ${res.status} ${res.statusText}`);
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
-  const parsed = parseRegistryJsonBytes(bytes);
+  const parsed = normalizePackagedCertificates(parseRegistryJsonBytes(bytes));
   assertPackagedCertificatesFile(parsed, url);
-  return parsed;
+  return parsed as PackagedCertificatesFile;
 }
 
 /**
@@ -52,9 +67,11 @@ export async function fetchPackagedCertificates(
   certRoot: string,
 ): Promise<PackagedCertificatesFile> {
   try {
-    const fromCdn = await registry.getCertificates(certRoot, { validate: false });
+    const fromCdn = normalizePackagedCertificates(
+      await registry.getCertificates(certRoot, { validate: false }),
+    );
     assertPackagedCertificatesFile(fromCdn, 'CDN');
-    return fromCdn;
+    return fromCdn as PackagedCertificatesFile;
   } catch (cdnError) {
     const details = await registry.getCertificateRootDetails(certRoot);
     if (!details.cid) {

@@ -75,7 +75,7 @@ make native-debug-symbols   # Play Console symbol ZIP
 make apk-install            # USB: install on connected device
 ```
 
-**APK size:** Release builds package **arm64-v8a only** (~50 MB typical). Upstream [Vocdoni v1.0.0 APK](https://github.com/vocdoni/vocdoni-passport/releases/tag/v1.0.0) can be larger if it includes more CPU ABIs—that is not required for physical phones.
+**APK size:** Release builds package **arm64-v8a only** (~**117 MB** typical on current GCE `make apk` output). Size is dominated by native provers (Barretenberg + ACVM), not multiple CPU ABIs.
 
 **Runtime:** The installed app needs **no `.env` file**. ID data stays in **encrypted on-device storage**; zkPassport **registry/CRS** are fetched from public URLs and cached under the app documents directory. A backend is only involved when completing a **signing request** (QR/link provides `aggregateUrl`); see ROADMAP Phase 1 for World Republic’s verifier.
 
@@ -210,7 +210,7 @@ Install on a physical Android device (unknown sources / sideload). Uninstall a p
 | `gcloud compute scp` insufficient scopes | `gcloud auth login` and retry; or use VM external IP + `scp -i ~/.ssh/google_compute_engine` |
 | `No such file or directory` on local path | Run `gcloud compute scp` from **laptop**, not from inside VM SSH |
 | WSL / laptop freezes during `make apk` | Use GCE; do not build on hosts with under **16 GB RAM** |
-| APK ~50 MB vs ~116 MB upstream release | Normal: release APK is **arm64-only**; see table above |
+| APK ~117 MB seems large | Normal for **arm64-only** release with embedded native provers; verify `ls -lh out/app-release.apk` on the build VM |
 
 ### Local development (no APK)
 
