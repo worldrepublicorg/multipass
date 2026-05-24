@@ -101,22 +101,66 @@ See `make ios-info` for detailed iOS build instructions.
 
 ## Android release build on Google Cloud
 
-Use this checklist so the first build succeeds. Tested on **Ubuntu 22.04** GCE (**e2-standard-4**, 16 GB RAM, **100 GB** disk). Same GCP project as other World Republic infra is fine.
+Use this checklist so the first build succeeds. Tested on **Ubuntu 22.04** GCE (**e2-standard-4**, 16 GB RAM, **100 GB** disk).
+
+**World Republic defaults** (use these in every `gcloud` command):
+
+| Setting | Value |
+|---------|--------|
+| GCP project | `world-republic` |
+| Zone | `europe-central2-a` |
+| VM name | `multipass-build` |
+| VM SSH user | `blaise_konya` |
+
+Use **`blaise_konya@multipass-build`** for both `gcloud compute scp` and `gcloud compute ssh`. `gcloud` without a username may target OS Login (`/home/balazs/…`) while browser SSH uses `/home/blaise_konya/…`—that mismatch causes missing tarballs and stale builds.
+
+```bash
+export GCP_PROJECT=world-republic
+export GCP_ZONE=europe-central2-a
+export GCP_VM=multipass-build
+export GCP_USER=blaise_konya
+```
 
 ### 1. Create the build VM
 
 | Setting | Value |
 |---------|--------|
-| Name | e.g. `multipass-build` |
+| Name | `multipass-build` |
 | Machine type | **e2-standard-4** (16 GB RAM minimum) |
 | Boot disk | Ubuntu 22.04 LTS, **≥100 GB** balanced PD |
 | Architecture | **x86_64** (amd64) |
 
 Allow **SSH (tcp:22)**. Delete the VM (and boot disk) when idle to stop charges.
 
+**Create** (laptop):
+
+```bash
+gcloud compute instances create "$GCP_VM" \
+  --project="$GCP_PROJECT" \
+  --zone="$GCP_ZONE" \
+  --machine-type=e2-standard-4 \
+  --boot-disk-size=100GB \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud
+```
+
+**Delete** when starting completely fresh:
+
+```bash
+gcloud compute instances delete "$GCP_VM" \
+  --project="$GCP_PROJECT" --zone="$GCP_ZONE" --quiet
+```
+
 ### 2. Prepare the VM (once per machine)
 
-SSH in (`gcloud compute ssh …` or browser SSH), then:
+SSH in:
+
+```bash
+gcloud compute ssh "${GCP_USER}@${GCP_VM}" \
+  --project="$GCP_PROJECT" --zone="$GCP_ZONE"
+```
+
+Then on the VM:
 
 ```bash
 sudo apt-get update
@@ -141,10 +185,11 @@ docker buildx version
 
 `worldrepublicorg/multipass` is **private**—do not rely on `git clone` over HTTPS without a token. **Recommended:** tarball from your dev machine (exclude heavy dirs):
 
-**On your laptop (WSL),** from the parent of `multipass/`:
+**On your laptop (WSL),** from the `world-republic` repo root (parent of `multipass/`):
 
 ```bash
-cd /path/to/parent-of-multipass
+cd multipass && npm install --legacy-peer-deps && cd ..
+
 tar czf /tmp/multipass.tgz \
   --exclude=node_modules \
   --exclude=out \
@@ -157,18 +202,22 @@ tar czf /tmp/multipass.tgz \
 **Upload** (run on laptop, not inside the VM SSH session):
 
 ```bash
-gcloud compute scp /tmp/multipass.tgz multipass-build:~/ \
-  --zone=YOUR_ZONE --project=YOUR_PROJECT_ID
+gcloud compute scp /tmp/multipass.tgz \
+  "${GCP_USER}@${GCP_VM}:~/multipass.tgz" \
+  --project="$GCP_PROJECT" --zone="$GCP_ZONE"
 ```
 
-**On the VM:**
+**On the VM** (as `blaise_konya`):
 
 ```bash
-tar xzf ~/multipass.tgz
+whoami   # expect blaise_konya
+ls -lh ~/multipass.tgz
+rm -rf ~/multipass
+tar xzf ~/multipass.tgz -C ~
 cd ~/multipass
 ```
 
-**Incremental changes** (e.g. launcher name in `android/app/src/main/res/values/strings.xml`): `gcloud compute scp` that file into the same path on the VM, then rebuild.
+**Incremental changes** (e.g. one file under `src/`): `gcloud compute scp` to `"${GCP_USER}@${GCP_VM}:~/multipass/…"` with the same `--project` / `--zone`, then rebuild.
 
 ### 4. Build the APK
 
@@ -193,11 +242,12 @@ ls -lh out/app-release.apk
 **On your laptop (WSL):**
 
 ```bash
-gcloud compute scp multipass-build:~/multipass/out/app-release.apk . \
-  --zone=YOUR_ZONE --project=YOUR_PROJECT_ID
+gcloud compute scp \
+  "${GCP_USER}@${GCP_VM}:~/multipass/out/app-release.apk" ./app-release.apk \
+  --project="$GCP_PROJECT" --zone="$GCP_ZONE"
 ```
 
-Install on a physical Android device (unknown sources / sideload). Uninstall a previous build if the launcher label does not update.
+Install on a physical Android device (unknown sources / sideload). Uninstall a previous build—or **clear app storage**—if the launcher label does not update or you are retesting CRS/memory fixes.
 
 ### Troubleshooting
 
@@ -209,6 +259,8 @@ Install on a physical Android device (unknown sources / sideload). Uninstall a p
 | `git clone` auth failed | Use tarball + `gcloud compute scp` (step 3), or PAT / deploy key |
 | `gcloud compute scp` insufficient scopes | `gcloud auth login` and retry; or use VM external IP + `scp -i ~/.ssh/google_compute_engine` |
 | `No such file or directory` on local path | Run `gcloud compute scp` from **laptop**, not from inside VM SSH |
+| `~/multipass.tgz` missing on VM; tarball in `/home/balazs/` | Upload to **`blaise_konya@multipass-build`** (see defaults table), or `sudo cp` + `sudo chown` into `blaise_konya` home |
+| `grep` on VM shows old source; `make apk` very fast | Wrong user home or Docker cache; verify `whoami` and tarball before trusting APK |
 | WSL / laptop freezes during `make apk` | Use GCE; do not build on hosts with under **16 GB RAM** |
 | APK ~117 MB seems large | Normal for **arm64-only** release with embedded native provers; verify `ls -lh out/app-release.apk` on the build VM |
 
