@@ -5,42 +5,51 @@ Standalone mobile app (derived from [Vocdoni Passport](https://github.com/vocdon
 ## How we execute
 
 - **Baby steps.** One route or one mobile change per step; **verify before the next** (`curl` → browser → phone paste → deeplink).
-- **Phase 1 = verify API + signing E2E.** Public Vocdoni test petitions are **not** available (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)). **Phase 2** = mobile polish. **Phase 5 web** waits for **Phase 3 iOS + Phase 4 Aadhaar** ([@Self](../self) parity)—see phase table.
+- **Phase 1 = scoped validity credential (Self-parity intent).** Same mobile + API flow for **account verification** and **voting**—only the **scope** differs (session vs election). Public Vocdoni test petitions are **not** available (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)). **Phase 2** = mobile polish. **Phase 5 web** waits for **Phase 3 iOS + Phase 4 Aadhaar** before replacing [@Self](../self)—see phase table.
 - **Verify after each step** ([Karpathy guidelines](../.cursor/rules/karpathy-guidelines.mdc): small diffs, explicit checks).
-- **Agent / Cursor:** `@docs/ROADMAP.md` for context; state active sub-step (e.g. “Phase 1.6 only”).
-- **Current focus:** Phase 1 Block B — phone paste → signing (see [Immediate next actions](#immediate-next-actions)).
+- **Agent / Cursor:** `@docs/ROADMAP.md` for context; state active sub-step (e.g. “Phase 1 E2 only”).
+- **Current focus:** Phase 1 **Block E** (trusted path: plain verify at scan + scoped nullifier); **Block B2/C** remain the **ZK lane** toward Self replacement (see [Trust evolution](#trust-evolution-a--d--c) and [Immediate next actions](#immediate-next-actions)).
 - **Builds / dev setup:** [`README.md`](../README.md#android-release-build-on-google-cloud) (not a roadmap phase).
 - **Codebase map:** [Key files](#key-files) (not a roadmap phase).
 
 | Phase | Summary | Status |
 |-------|---------|--------|
-| 1 | Verify API + multipass signing E2E (baby steps) | in progress |
+| 1 | Scoped validity API + mobile (trusted path **E**; ZK lane **B2/C**) | in progress (pivot to **E**; B2 largely implemented) |
 | 2 | Wallet optional, branding | |
-| 3 | iOS inner proving (Barretenberg) | |
-| 4 | Aadhaar (Anon Aadhaar Noir + BB) | |
-| 5 | Web integration (member-facing; after Self parity) | |
-| 6 | Security hardening (before beta) | |
+| 3 | iOS (NFC + validity; ZK/tiered prove when on **C** path) | |
+| 4 | Aadhaar (same scope/nullifier model; material from QR) | |
+| 5 | Member web (replace Self only after Phase 3 + 4) | |
+| 6 | Security hardening + **platform attestation (D)** before public elections | |
 | 7 | Global e-IDs ([anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) catalog) | |
 
 ---
 
 ## Product goal
 
-Enable **your web app** to offer identity verification where users:
+World Republic today uses [@Self](../self) for **account verification** and **voting**, checking **document validity** (and expiry)—not rich attribute disclosure. Multipass should offer the **same product** with **one process** and **different scopes**:
 
-1. Use **your app** on **Android and iOS**.
-2. Prove attributes from an **NFC ID stored on device** via **zero-knowledge inner proofs** on the phone.
-3. Your backend records **verified + nullifier** for a session—**not** raw passport data.
+| Scope | Example | Server stores |
+|-------|---------|----------------|
+| **Verification** | `verification:{sessionId}` | `verified` + **nullifier** for that session |
+| **Election** | `election:{electionId}` | `cast` + **nullifier**; `UNIQUE(election_id, nullifier)` → one government document → one ballot |
 
-**v1 (Android-first):** Phases 1–2 for first passport E2E; **Phase 5 web** only after **iOS (Phase 3) + Aadhaar (Phase 4)**—parity with today’s [@Self](../self) coverage (passport + Aadhaar on iOS/Android). Phase 1 dev API is for testing, not member-facing web.
+Users:
 
-**In scope:** Inner proofs on device → POST `InnerProofPackage` → **your backend verifies sub-proofs + nullifier** → web shows verified. **No blockchain.**
+1. **Scan** an NFC passport (later: Aadhaar QR, iOS) in Multipass.
+2. **On device:** plain registry verify at scan (see [Plain registry verify](#plain-registry-verify-at-scan)); encrypted storage of chip blobs—**never upload `dg1`/`sod` to the server** on the production path.
+3. **On web action** (verify account or vote): app checks **not expired** + **integrity** (`sodHash` vs scan-time), derives **nullifier** from chip/document material + scope, POSTs to your API.
 
-**Out of scope (unless requirements change):** Closed ZKPassport consumer app/SDK, **live Vocdoni petition hosts** (e.g. `nomad.dabax.net`—dev-only, not maintained), mandatory EVM wallet, **on-device outer proof**, **on-chain verifier**. The app skips outer proving on device ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts) ~298); Phase 1 replaces Vocdoni **aggregate** with **off-chain inner verify** (no outer proof, no chain). **Test elections** use our session URLs, not upstream petitions.
+**Replace Self** for member-facing flows only after **Phase 3 (iOS) + Phase 4 (Aadhaar)**. Until then, Self stays production; Multipass is the Android passport pilot.
 
-**Protocol deps (passport / NFC):** `@zkpassport/utils`, `@zkpassport/registry`, `@zkpassport/poseidon2`. **Build dep:** [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) for ACVM JNI in Docker (`make apk`)—not their aggregation server.
+**Sybil rule:** one physical document → one nullifier per scope; same person may vote in different elections (different scoped nullifiers).
 
-**Aadhaar (Phase 4, before web):** separate document lane—mAadhaar **QR** (not NFC), Noir circuits from [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir), reuse on-device **ACVM + Barretenberg** like zkPassport. Circom only if Noir path fails (see [Phase 4](#phase-4--aadhaar-anon-aadhaar-noir)).
+**No blockchain** for verification/voting v1: nullifier + verified state on **your API** only ([Registry vs verification](#registry-vs-verification-blockchain)).
+
+**Out of scope (unless requirements change):** Closed ZKPassport consumer app/SDK, **live Vocdoni petition hosts**, mandatory EVM wallet, **on-device outer proof**, **on-chain verifier**, rich disclosure queries (`bind_evm`, nationality gates) for validity-only flows. **Ephemeral server verify** (POST `dg1`/`sod`, discard)—**not** the default; conflicts with “never see your document” unless legal/product explicitly accepts transient processing ([Trust evolution](#trust-evolution-a--d--c)).
+
+**Protocol deps (passport / NFC):** `@zkpassport/utils`, `@zkpassport/registry`, `@zkpassport/poseidon2`. **Build dep:** [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) for ACVM JNI in Docker (`make apk`). **Server dep (same repo / patterns):** inner `CircuitProve` + verify logic on desktop/server BB—not Vocdoni public aggregation unless interoperability requires it.
+
+**Aadhaar (Phase 4, before web):** separate document lane—mAadhaar **QR** (not NFC), Noir circuits from [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir), same **tiered** pattern as passport (ACVM witness on device; prove on device or server). Circom only if Noir path fails (see [Phase 4](#phase-4--aadhaar-anon-aadhaar-noir)).
 
 **Global e-IDs (later, Phase 7):** use [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) (`national-id.json`) as the country/system backlog—integrate **each** listed electronic ID where a ZK path exists or can be built (zkPassport NFC, Anon Aadhaar–style, or new circuits). Aspirational, catalog-driven; not one release (see [Phase 7](#phase-7--global-e-ids-anon-citizen-map)).
 
@@ -50,41 +59,114 @@ Two different uses of “chain” show up in this project—do not conflate them
 
 | Use | Role in v1 |
 |-----|------------|
-| **zkPassport registry** | **Read-only.** [`ProofGenerator.ts`](../src/services/ProofGenerator.ts) uses `RegistryClient` (`CHAIN_ID`, e.g. Sepolia or mainnet) to download circuit manifests and CSCA/certificates (on-chain registry metadata + CDN/IPFS). Required for passport NFC proving. **Not** your verification product. |
-| **World Republic verification** | **Off-chain.** Session + nullifier on **your API** after inner-proof verify. No publishing user proofs to Ethereum, no on-chain verifier contract for v1. |
+| **zkPassport registry** | **Read-only.** `RegistryClient` + packaged CSCA/certs (CDN/IPFS). Used for **plain verify at scan** (path A) and circuit artifacts (path C). **Not** your verification product. |
+| **World Republic verification** | **Off-chain.** Scoped session + nullifier on **your API** (path A: trusted app; path C: after inner-proof verify). No on-chain verifier for v1. |
 
 **“No blockchain” in this roadmap** refers to the **verification path** above (product goal, Phase 1–5): you do not record “verified” or nullifiers on-chain, and the app skips outer proving on device. It does **not** mean removing `@zkpassport/registry` or `CHAIN_ID`—those stay as protocol infrastructure.
 
-**What the phone posts:** `InnerProofPackage` to your `aggregateUrl` / `submitUrl` (dev API in Phase 1, production verify routes later)—**not** to a chain. **What the phone does not post:** outer proofs on-chain ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts) skips outer on device).
+**What the phone posts (path A, production v1):** scoped **nullifier** + session binding—**not** `dg1`, **not** `sod`, **not** raw MRZ. **What the phone posts (path C, Self replacement):** `InnerProofPackage` (or trimmed validity package) to `submitUrl`; server verifies proofs + nullifier—still **not** raw ID blobs.
 
 Registry download failures (e.g. Sepolia certificate CDN 404) are **read** problems for circuits/certs; multipass uses CDN then **IPFS by CID** ([`fetchPackagedCertificates.ts`](../src/services/fetchPackagedCertificates.ts)). Mainnet `CHAIN_ID` is not a drop-in fix (circuits `0.16.0` are Sepolia-side).
+
+### Trust evolution (A → D → C)
+
+| Stage | Model | When | Server learns passport bytes? |
+|-------|--------|------|-------------------------------|
+| **A — Trusted app** | Plain verify at scan on device; scoped nullifier + expiry/integrity at submit | **Now** (Phase 1 Block E) | **No** |
+| **D — Attestation** | **A** + Play Integrity (Android) / App Attest (iOS) on submit | Before **public elections** / production verify | **No** |
+| **C — ZK (Self parity)** | Validity credential via inner proofs + server verify; tiered **prove-inner** for RSA-4096 DSC until mobile BB can run it | **Self replacement** (after iOS + Aadhaar) | **No** (witness may transit for prove-inner only—TLS, ephemeral, no logs) |
+
+**Not on the default ladder:** **B — Ephemeral server plain verify** (check `dg1`/`sod` on server, do not store). Stronger validity than trusting the app, but the server **processes** full ID data—only use if legal/product explicitly allows transient processing.
+
+Plain verify at scan does **not** remove **prove-inner** on path **C**: the server still cannot trust “valid” without a proof unless it sees ID bytes (B) or trusts the app (A).
+
+### Plain registry verify at scan
+
+**Not implemented at add-ID today**—validity is deferred to ZK prove time in [`ProofGenerator.ts`](../src/services/ProofGenerator.ts). Target behavior after NFC:
+
+1. Parse `dg1` + `sod`; load packaged certs from `@zkpassport/registry` (CDN → IPFS fallback).
+2. `getCscaForPassportAsync` + `verifyDscSignature` / SOD CMS verify + DG1 hash vs SOD eContent ([`@zkpassport/utils`](https://www.npmjs.com/package/@zkpassport/utils)—`verifyDscSignature`, `verifyRSASignature`, etc.).
+3. On success: store encrypted blobs + metadata (`verifiedAt`, `certRoot`, `sodHash`); on failure: do not treat ID as usable.
+4. **Re-verify policy:** full plain verify **once at scan**; at verify/vote time only **expiry** (MRZ) + **integrity** (`sodHash` match)—no full DSC re-prove on each cast unless policy changes.
+
+### Proving architecture (tiered) — ZK lane (path C)
+
+Physical Android testing (2025) showed a reliable path for EU passports with **RSA-4096 DSC** circuits:
+
+| Step | Where | Notes |
+|------|--------|--------|
+| Registry / certs / circuit artifacts | Phone (cache) | Unchanged; read-only `@zkpassport/registry` |
+| ACVM **witness** | Phone | Works for heavy circuits (e.g. `sig_check_dsc_tbs_700_rsa_pkcs_4096_sha256`); 32 MB witness thread stack on Android |
+| Barretenberg **inner prove** | **Phone or server** | **Heavy inners** (large decompressed ACIR, e.g. ~16 MB for RSA-4096 DSC) fail in mobile `bbapi` (`Length is too large` in ~30 ms)—not CRS sizing and not “buy a faster phone” |
+| Outer aggregation | **Server** (optional) | Already skipped on device; v1 needs **inner verify only** |
+| Session / nullifier | Your API | Off-chain |
+
+**Policy (path C only):** run `circuitProve` on the phone only for circuits below a size threshold; otherwise `POST` witness + circuit reference to **your** `prove-inner` endpoint (server Barretenberg). Default **server** for `rsa_pkcs_4096` DSC. **Not required** for path **A** production flows.
+
+**Privacy:** server prove receives **witness bytes** (sensitive—not `dg1`/`sod`, but derived from them). Path C: TLS, ephemeral jobs, no witness logging in prod. Stronger guarantees later (TEE, [zkpassport/cloud-prover](https://github.com/zkpassport/cloud-prover)) if required.
+
+**CRS on phone:** size `bn254_g1.dat` from **inner** circuit manifest sizes only—exclude `outer_evm_count_*` to avoid ~256 MB downloads/OOM at Preparing ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts) ~211).
 
 ---
 
 ## Target architecture
 
+### Path A (production v1) — trusted app + scoped nullifier
+
 ```mermaid
 sequenceDiagram
   participant Web as YourWebApp
   participant API as YourBackend
-  participant App as YourMobileApp
+  participant App as Multipass
   participant Registry as ZkPassportRegistry
 
-  Web->>API: POST verification-sessions
-  API-->>Web: sessionId + verifyUrl
+  Note over App,Registry: Once per document (add ID)
+  App->>App: NFC read dg1+sod
+  App->>Registry: packaged CSCA/certs
+  App->>App: plain registry verify (device only)
+  App->>App: store encrypted + sodHash
+
+  Note over Web,API: Verify account or vote (scoped)
+  Web->>API: POST session (scope = verification or election)
+  API-->>Web: sessionId + openInAppUrl
   Web->>App: QR or deep link
-  App->>API: GET verifyUrl JSON
-  API-->>App: query + verifyEndpoint
-  App->>Registry: circuits/certs cache
-  App->>App: generatePassportInnerProofPackage
-  App->>API: POST inner package + sessionId
+  App->>API: GET session JSON (scope, submitUrl)
+  App->>App: expiry OK + sodHash integrity
+  App->>API: POST nullifier + scope (no dg1/sod)
+  API->>API: UNIQUE(scope, nullifier)
+  API-->>App: ok
+  Web->>API: poll status
+  API-->>Web: verified / ballot recorded
+```
+
+Later (**D**): add Play Integrity / App Attest token on the POST step.
+
+### Path C (Self replacement) — ZK validity credential
+
+```mermaid
+sequenceDiagram
+  participant Web as YourWebApp
+  participant API as YourBackend
+  participant App as Multipass
+  participant Registry as ZkPassportRegistry
+
+  Web->>API: POST session (scoped)
+  Web->>App: QR or deep link
+  App->>API: GET session JSON
+  App->>Registry: circuits/certs
+  App->>App: witness on device
+  alt light inner
+    App->>App: circuitProve on device
+  else heavy DSC RSA-4096
+    App->>API: POST witness prove-inner
+    API-->>App: proof + publicInputs
+  end
+  App->>API: POST InnerProofPackage + scope
   API->>API: verify sub-proofs + nullifier
-  API-->>App: ok + nullifier
-  Web->>API: poll session status
   API-->>Web: verified
 ```
 
-Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerClient.ts) after [`generatePassportInnerProofPackage`](../src/services/ProofGenerator.ts).
+**Code today:** path **C** partially built ([`ProofGenerator.ts`](../src/services/ProofGenerator.ts), prove-inner route, tiering); path **A** not yet wired at [`addID`](../src/hooks/useIDs.ts). **Next product priority:** Block **E** (path A); keep B2/C for dev and Self parity.
 
 ---
 
@@ -98,15 +180,20 @@ Today: mobile ends at Vocdoni [`aggregateProofOnServer`](../src/services/ServerC
 | Git remote | [worldrepublicorg/multipass](https://github.com/worldrepublicorg/multipass) |
 | Android builds | **`make apk`** (Docker)—not `npm run android` / AVD |
 | APK build host | **Google Cloud Compute Engine (≥16 GB RAM)**—see [APK builds (GCP)](#apk-builds-google-cloud). Use existing GCP project (e.g. verification). Local `make apk` only on **≥16 GB** RAM; **12 GB dev laptop uses cloud** (Docker Barretenberg build OOMs WSL). |
-| Device testing | **Physical Android**, sideload APK (no USB) |
+| Device testing | **Physical Android**, sideload APK; debug with in-app logs (5× tap on proof screen) or **wireless ADB** — see [README → Debugging on device](../README.md#debugging-on-device-wireless-adb) |
 | CI | Optional: **GCE VM** runner (see [Optional CI](#optional-ci-for-android-builds)) |
-| Verify API | **world-republic** Next.js routes under `app/api/dev/multipass/` (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)); production paths TBD |
-| Prover / verify logic | Off-chain **inner** verify only—port from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) in Phase 1 Block C; no outer-proof server required for v1 |
+| Verify API | **world-republic** Next.js routes under `app/api/dev/multipass/` (see [Phase 1](#phase-1--verification-api-world-republic-nextjs)); production paths TBD; **scoped** `verification:*` / `election:*` |
+| Production trust (v1) | **Path A:** trusted Multipass + plain verify at scan + scoped nullifier; **no** `dg1`/`sod` on server |
+| Attestation | **Path D:** Play Integrity / App Attest before public elections—not optional “later nice-to-have” |
+| Self replacement | **Path C:** ZK + inner verify; requires **iOS + Aadhaar** before Phase 5 replaces [@Self](../self) |
+| Proving (path C only) | **Tiered:** witness on device; **server `prove-inner`** for heavy inners (RSA-4096 DSC) |
+| Prover / verify logic | Path C: off-chain inner verify—port from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) (Block C). Path A: nullifier dedup + session binding only |
 | Verification on-chain | **Not used** for v1 — nullifier + verified state on your API only |
-| zkPassport registry | **Read-only** — `CHAIN_ID` + `@zkpassport/registry` for circuits/certs; see [Registry vs verification](#registry-vs-verification-blockchain) |
+| zkPassport registry | **Read-only** — certs for **plain verify at scan** and for **ZK circuits** on path C; see [Registry vs verification](#registry-vs-verification-blockchain) |
 | Wallet | Optional / removed for v1 |
-| Security | Private dev OK; **Phase 6** before public beta |
-| Web vs Self | Member-facing **world-republic** verification UI (**Phase 5**) only after **iOS + Aadhaar** in multipass—do not replace [@Self](../self) until coverage matches |
+| Security | Private dev OK; **Phase 6** (+ **D**) before public beta / real elections |
+| Web vs Self | Keep **Self** in production until Multipass **iOS + Aadhaar**; same validity-only semantics |
+| ID on server | **Do not** store or log `dg1`/`sod`; ephemeral server verify (path B) **not** default |
 | Aadhaar ZK | **Primary:** [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir) + existing BB/ACVM JNI. **Fallback:** upstream Circom ([anon-aadhaar](https://github.com/anon-aadhaar/anon-aadhaar)) or Self’s Circom fork—only if Noir integration blocked |
 | Aadhaar input | mAadhaar QR upload (not zkPassport NFC) |
 | Global e-ID backlog | [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) `public/national-id.json`; live map at [anon-citizen-map.vercel.app](https://anon-citizen-map.vercel.app) |
@@ -125,6 +212,7 @@ Split: **local WSL** for day-to-day dev; **Google Cloud VM** for release APK bui
 | Node | 18+; `npm install --legacy-peer-deps` |
 | Tests | `npm test`, `npm run typecheck` |
 | Phone | Sideload `out/app-release.apk` after download from build host (unknown sources) |
+| Native / BB logs | **Wireless ADB** (no USB) — [README](../README.md#debugging-on-device-wireless-adb); proof screen **5× tap** for in-app `[prove]` / `[crs]` logs |
 
 **Do not run `make apk` on the 12 GB dev laptop** (WSL/Docker OOM; host may require full restart). Cap WSL if needed: `memory=4GB` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`.
 
@@ -155,9 +243,9 @@ Release signing secrets only needed for store-style builds ([`releasing.md`](rel
 
 ---
 
-## Phase 1 — Verification API (world-republic Next.js)
+## Phase 1 — Scoped validity API (world-republic Next.js)
 
-**Goal:** Multipass completes a **test verification session** via deeplink or pasted URL—POST `InnerProofPackage` to **our** API, receive **nullifier**, no outer proof, no blockchain.
+**Goal:** Multipass completes **scoped validity** for **verification** and **election** flows (same UX, different scope)—aligned with today’s Self usage (validity + expiry, nullifier dedup). **Primary deliverable:** path **A** (trusted app). Path **C** (ZK) is dev + Self-replacement track.
 
 **Where (monorepo):** Parent app [world-republic](https://github.com/worldrepublicorg/world-republic) (sibling of `multipass/`):
 
@@ -165,48 +253,74 @@ Release signing secrets only needed for store-style builds ([`releasing.md`](rel
 |--------|------------------------|
 | API routes | `app/api/dev/multipass/` |
 | Dev test UI | e.g. `app/[lang]/dev/multipass/page.tsx` (unlisted, **no auth**)—creates session, shows **copy link** for phone testing |
-| Session store | Postgres (`multipass_dev_sessions`); 24h TTL |
+| Session store | Postgres (`multipass_dev_sessions`); 24h TTL; later `scope` column (`verification` / `election`) |
 
-**Compatibility:** Early steps return Vocdoni-shaped JSON (`aggregateUrl`, `kind: vocdoni-passport-request`, `query`) so multipass changes stay minimal. Rename to `submitUrl` / `verifyUrl` in step 1.15.
+**Compatibility:** Dev JSON may stay Vocdoni-shaped (`aggregateUrl`, `kind: vocdoni-passport-request`) during transition; add explicit `scope` / `electionId` when Block **E3** lands. Rename to `submitUrl` / `verifyUrl` in step 1.15.
 
-**Dev testing:** Scanner **paste** first; **deeplink** at 1.9. No public QR or App Links until [Phase 2](#phase-2--mobile-product-polish). Phone must reach dev host (`NEXTAUTH_URL` / tunnel / deploy URL).
+**Dev testing:** Scanner **paste** first; **deeplink** when ready. Use **https://www.worldrepublic.org** (not apex) so POSTs avoid 308 redirects. Phone must reach dev/prod host (`NEXTAUTH_URL` / tunnel / deploy URL).
 
-**Not used:** Vocdoni public petitions, `vocdoni.link` production flows, self-hosting full vocdoni-passport-prover aggregation (outer proof) unless a sub-step explicitly needs it.
+**Not used:** Vocdoni public petitions, `vocdoni.link` production flows, uploading `dg1`/`sod` to API on path A.
 
-### Block A — done (world-republic API)
+### Block A — done (world-republic API shell)
 
 Implemented and verified (`curl` / browser): health, sessions, proof-request JSON, stub aggregate (with request metrics logging), dev test page + session status polling. Sessions persisted in Postgres (`multipass_dev_sessions`).
 
-### Block B — Phone (minimal multipass changes)
-
-One APK rebuild per sub-step. Use **paste** in Scanner first; **deeplink** at 1.9.
+### Block E — Trusted validity path (path A, **product priority**)
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 1.6 | Paste `verifyUrl` from dev page → **ServerCheck** passes | Health OK |
-| 1.7 | Same → through disclosure (no code change if 1.6 OK) | UI through **DisclosureReview** |
-| 1.8 | Full flow with 1.4 stub POST (on-device prove + stub upload) | **SigningSuccess** + history row |
-| 1.9 | Deeplink: open `verifyUrl` via intent / tap saved link | Same as 1.8 |
+| E1 | `plainVerifyPassport(dg1,sod)` using registry + `@zkpassport/utils` (`verifyDscSignature`, SOD/DG1 integrity) | Unit tests; invalid SOD rejected |
+| E2 | Call E1 from [`addID`](../src/hooks/useIDs.ts); persist `verifiedAt`, `certRoot`, `sodHash` on [`StoredID`](../src/storage/idStorage.ts) | Bad doc fails at add; good doc shows verified state |
+| E3 | Session JSON: `scope` (`verification:{id}` / `election:{id}`); API `POST` accepts **nullifier** only (no ID blobs) | `curl` + phone; body has no dg1/sod |
+| E4 | API: `UNIQUE(scope, nullifier)`; bind web session ↔ app (TTL, one-time nonce) | Second submit in same scope → 409 |
+| E5 | Submit flow: vote-time **expiry** + **sodHash** integrity; derive nullifier from chip material + scope (zkPassport-style scope hashes when on C; stable derivation on A) | E2E verify scope + election scope on Android |
+| E6 | Simplify signing UI for validity-only (drop heavy disclosure / optional `bind_evm`) | Faster path to E5 |
 
-Mobile touch points (when needed): [`requestLinks.ts`](../src/utils/requestLinks.ts), [`ServerClient.ts`](../src/services/ServerClient.ts), signing screens—**only** if default hosts still point at Vocdoni; often just use dev `verifyUrl` as-is.
+Touch points: new `documentVerify.ts` (or similar), [`useIDs.ts`](../src/hooks/useIDs.ts), [`ServerClient.ts`](../src/services/ServerClient.ts), [`RequirementsValidator.ts`](../src/services/RequirementsValidator.ts), world-republic session + submit routes.
 
-**Optional in Block B (before 1.8 retest):** drop `walletAddress` in [`ProofProgressScreen`](../src/screens/signing/ProofProgressScreen.tsx) so proofs omit `bind_evm`—same change as [Phase 2b](#phase-2--mobile-product-polish).
+**Phase 1 (path A) done when:** E1–E5 pass on physical Android with dev session links for **verification** and **test election** scopes.
 
-### Block C — Real verify (still incremental)
+### Block B — ZK signing E2E (path C dev lane)
+
+Legacy Vocdoni-shaped **full prove** flow—useful to validate server BB, not the production voting/verify path.
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 1.11 | Verify one inner sub-proof; reject invalid bodies | `curl` bad body → 4xx |
-| 1.12 | Full inner verify + session nullifier dedup | Second sign → duplicate rejected |
-| 1.13 | Port remaining verify from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) | E2E with real crypto |
+| 1.6 | Paste `verifyUrl` → **ServerCheck** passes | Health OK |
+| 1.7 | Through disclosure | **DisclosureReview** |
+| 1.8 | Tiered prove + stub POST `InnerProofPackage` | **SigningSuccess** (ZK lane) |
+| 1.9 | Deeplink | Same as 1.8 |
+
+**Optional:** drop `walletAddress` / `bind_evm` ([Phase 2b](#phase-2--mobile-product-polish)).
+
+### Block B2 — Server prove-inner (path C; largely implemented)
+
+Heavy inner circuits prove on **world-republic**, not JNI `bbapi` (RSA-4096 DSC).
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.8a | `POST …/prove-inner` | `curl` |
+| 1.8b | Multipass tiering in [`proveTier.ts`](../src/services/proveTier.ts) | `target=server` in logcat for DSC |
+| 1.8c | `proveInnerUrl` in session JSON | Phone reaches host |
+| 1.8d | Retest **1.8** on physical Android | **SigningSuccess** (ZK lane) |
+
+**Privacy:** no witness logging; TLS only. Required for **path C**, not for **path A**.
+
+### Block C — Real inner verify (path C)
+
+| Step | Action | Verify |
+|------|--------|--------|
+| 1.11 | Verify one inner sub-proof | `curl` bad body → 4xx |
+| 1.12 | Full inner verify + scoped nullifier dedup | Duplicate rejected |
+| 1.13 | Port verify from [vocdoni-passport-prover](https://github.com/vocdoni/vocdoni-passport-prover) | E2E ZK + real crypto |
+
+**Phase 1 (path C) done when:** 1.8d + 1.12 pass—**Self-replacement crypto**, not required for path A pilot.
 
 ### Block D — API shape cleanup
 
 | Step | Action | Verify |
 |------|--------|--------|
-| 1.15 | Rename `aggregateUrl` → `submitUrl` (+ dual-read in multipass) | E2E after rename |
-
-**Phase 1 done when:** 1.8 (stub) and 1.12 (real verify) pass on a physical Android device with a dev session link.
+| 1.15 | Rename `aggregateUrl` → `submitUrl`; dual-read; document `proveInnerUrl` as ZK-only | E2E both lanes |
 
 ---
 
@@ -236,9 +350,11 @@ Mobile touch points (when needed): [`requestLinks.ts`](../src/utils/requestLinks
 | ACVM witness | JNI | ✅ [`AcvmWitness.mm`](../ios/VocdoniPassport/AcvmWitness.mm) |
 | Barretenberg | ✅ | ❌ [`ProofGenerator.ts`](../src/services/ProofGenerator.ts) iOS guard |
 
-**Likely ZKPassport iOS approach:** same Noir + ACVM + Barretenberg on device ([noir_rs](https://github.com/zkpassport/noir_rs), [Swoir](https://github.com/Swoir/swoir)); [cloud-prover](https://github.com/zkpassport/cloud-prover) not needed for our product.
+**iOS:** path **A** (NFC + plain verify + nullifier) required for Self parity; path **C** uses same **tiered** prove as Android (server prove-inner for heavy DSC until on-device BB exists).
 
-**Recommended path:** Port Android **msgpack `bbapi`** → iOS `Barretenberg.mm` + `libbarretenberg.a` (build on **macOS**).
+**Recommended path (path C polish):** Port Android **msgpack `bbapi`** → iOS `Barretenberg.mm`. **Not required** for path **A** Android pilot.
+
+**Reference:** [noir_rs](https://github.com/zkpassport/noir_rs), [Swoir](https://github.com/Swoir/swoir); [cloud-prover](https://github.com/zkpassport/cloud-prover) if you outsource heavy prove later.
 
 | Step | Work |
 |------|------|
@@ -266,7 +382,7 @@ Mobile touch points (when needed): [`requestLinks.ts`](../src/utils/requestLinks
 |------|--------|--------|
 | 4.1 | Spike: compile anon-aadhaar-noir circuits; align **Noir/BB** versions with Android JNI build (repo pins Noir **0.38** / BB **0.61**—may differ from zkPassport `0.16.0` registry) | `nargo test` + one proof on desktop BB |
 | 4.2 | QR onboarding: mAadhaar QR capture (photo/screenshot); parse with `@anon-aadhaar/core` helpers (see anon-aadhaar-noir `/js` or upstream core) | Parse test vectors; expiry/timestamp checks |
-| 4.3 | Mobile prove: witness (ACVM) + `circuitProve` for anon-aadhaar-noir bytecode/vkey; ship CRS/artifacts in app or cache | Proof on physical Android |
+| 4.3 | Mobile prove: witness (ACVM) on device; `circuitProve` on device **or** server prove-inner if circuit exceeds mobile BB limits; CRS/artifacts in app or cache | Proof on physical Android |
 | 4.4 | Backend: off-chain verify (BB/Ultra Honk verifier for Noir proofs); session + nullifier; **separate** endpoint or `documentType` from passport verify | E2E via Phase 1 dev session (paste/deeplink)—not member web yet |
 | 4.5 | iOS: same BB port as Phase 3, then Aadhaar circuits | iPhone E2E |
 | 4.6 | **Gate:** maintainer warning—noir repo is **not** production-safe yet; track audits and [PSE docs](https://documentation.anon-aadhaar.pse.dev/docs/intro) before real Aadhaar data | Written go/no-go |
@@ -295,9 +411,11 @@ India is catalog entry **Lane B** in [Phase 7](#phase-7--global-e-ids-anon-citiz
 
 ## Phase 5 — Web app integration
 
-**When:** After **Phase 3 (iOS passport)** and **Phase 4 (Aadhaar)**—multipass must match [@Self](../self) platform + document coverage before **world-republic** replaces Self for member verification. Phase 1 dev sessions remain the test harness until then.
+**When:** After **Phase 3 (iOS passport)** and **Phase 4 (Aadhaar)**—multipass must match [@Self](../self) platform + document coverage before **world-republic** **replaces** Self. Until then, Self stays production; Multipass path **A** may pilot on Android only.
 
-Builds on Phase 1 API → **test elections** and member-facing flows (not the dev test page).
+**Target trust at replacement:** path **C** (ZK) preferred for Self-parity marketing; path **A** + **D** acceptable only if legal copy matches trusted-client model.
+
+Builds on Phase 1 API → **test elections** and member-facing flows (scoped nullifier; not the dev test page alone).
 
 | Step | Verify |
 |------|--------|
@@ -321,15 +439,16 @@ Only if you later need **on-chain** verification. Not required for Phases 2–5.
 
 ## Phase 6 — Security checklist (before public or beta)
 
-**When:** Before **Phase 5** member-facing web goes to beta/public (and for any Aadhaar build with real user data).
+**When:** Before **Phase 5** member-facing web goes to beta/public, **real elections** on path A, or any Aadhaar build with real user data. **Path D (attestation)** belongs here—not after launch.
 
 | Area | Actions |
 |------|---------|
 | Self-hosted runner | Restrict fork PRs; consider cloud VM; remove when unused |
 | Secrets | Minimize on runner; rotate keystores |
-| API | TLS, TTL, rate limits, proof validation, no PII in logs |
+| API | TLS, TTL, rate limits; **no `dg1`/`sod`/MRZ in logs**; scoped nullifier dedup; path C: proof validation, **prove-inner** no witness logging |
+| **Attestation (D)** | Play Integrity (Android) + App Attest (iOS) on submit; dev/sideload bypass documented and disabled in prod |
 | Mobile | Release signing; distribution policy |
-| App | Deep links, network security |
+| App | Deep links, network security; document trusted-app limits for path A until C |
 | AGPL | Source offer if distributing APK |
 | Aadhaar (if Phase 4 shipped) | QR handling, separate verifier, maintainer go/no-go; no raw QR in logs |
 | Global e-IDs (if Phase 7) | Per-`documentType` verify; catalog-driven expectations; no false “supported” for Lane D |
@@ -384,26 +503,29 @@ Only if you later need **on-chain** verification. Not required for Phases 2–5.
 | Concern | Location |
 |---------|----------|
 | App entry | [`App.tsx`](../App.tsx) |
-| Signing flow | [`SigningNavigator`](../src/navigation/SigningNavigator.tsx), [`requestLinks.ts`](../src/utils/requestLinks.ts) |
-| Inner proofs (passport) | [`ProofGenerator.ts`](../src/services/ProofGenerator.ts) |
+| Add ID / storage | [`useIDs.ts`](../src/hooks/useIDs.ts), [`idStorage.ts`](../src/storage/idStorage.ts) |
+| Plain verify (planned E1) | new `documentVerify.ts` (target); registry via [`fetchPackagedCertificates.ts`](../src/services/fetchPackagedCertificates.ts) |
+| Scoped submit (planned E3–E5) | [`ServerClient.ts`](../src/services/ServerClient.ts), signing screens |
+| Inner proofs (path C) | [`ProofGenerator.ts`](../src/services/ProofGenerator.ts), [`Barretenberg.ts`](../src/native/Barretenberg.ts), [`proveTier.ts`](../src/services/proveTier.ts) |
+| Server prove-inner (path C) | `world-republic` → `app/api/dev/multipass/api/proofs/prove-inner` |
 | Verify API (Phase 1) | `world-republic` → `app/api/dev/multipass/` |
-| Dev session UI (Phase 1) | `world-republic` → `app/[lang]/dev/multipass/` (unlisted, no auth) |
-| Aadhaar (planned) | Phase 4 — [anon-aadhaar-noir](https://github.com/anon-aadhaar/anon-aadhaar-noir) |
-| Member web (planned) | Phase 5 — after iOS + Aadhaar; keep [@Self](../self) until then |
-| Global e-ID catalog | Phase 7 — [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) `national-id.json` |
-| Server I/O (multipass) | [`ServerClient.ts`](../src/services/ServerClient.ts) |
-| APK build | [`Makefile`](../Makefile), [`docker/apk.Dockerfile`](../docker/apk.Dockerfile) |
+| Dev session UI | `world-republic` → `app/[lang]/dev/multipass/` |
+| Aadhaar (planned) | Phase 4 — same scope/nullifier model |
+| Member web | Phase 5 — replace [@Self](../self) after iOS + Aadhaar |
+| Global e-ID catalog | Phase 7 — [anon-citizen-map](https://github.com/anon-aadhaar/anon-citizen-map) |
+| APK build | [`Makefile`](../Makefile), [`README.md`](../README.md#android-release-build-on-google-cloud) |
 | CI Android | [`android-build.yml`](../.github/workflows/android-build.yml) |
 
 ---
 
 ## Immediate next actions
 
-1. **Phase 1.6–1.8** — paste dev `verifyUrl` on phone (GCP APK + IPFS cert fallback) → signing success (stub).
-2. **Phase 2b** (optional during 1.8) — drop `walletAddress` / `bind_evm`; retest 1.8.
-3. **Phase 1.11–1.12** — real verify + nullifier dedup.
-4. **Phase 1.15** — rename `aggregateUrl` → `submitUrl` when convenient.
-5. Phase 2a/2c branding when 1.12 is green.
-6. **Later:** Phase 3 iOS → Phase 4 Aadhaar → **Phase 5** member web (replace Self for verification).
+1. **Phase 1 E1–E2** — plain registry verify at scan; wire into `addID` (path **A** priority).
+2. **Phase 1 E3–E5** — scoped nullifier API + mobile submit (verification + test election); no `dg1`/`sod` on wire.
+3. **Phase 1 B2 (1.8d)** — optional in parallel: finish ZK lane E2E on device if APK + `www` prove-inner ready (validates path **C** infra).
+4. **Phase 1.15** — `submitUrl` rename + `scope` in session JSON when touching API.
+5. **Phase 6 / D** — Play Integrity before any **production election** on path A.
+6. **Phase 1.11–1.12** — inner verify + dedup when pursuing path **C** / Self replacement.
+7. **Later:** Phase 3 iOS → Phase 4 Aadhaar → Phase 5 replace Self (path **C** + **D**).
 
-For Cursor: `@docs/ROADMAP.md` and state active sub-step (e.g. “Phase 1.6 only”).
+For Cursor: `@docs/ROADMAP.md` and state active sub-step (e.g. “Phase 1 E2 only”).

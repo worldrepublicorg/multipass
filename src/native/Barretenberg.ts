@@ -23,6 +23,8 @@ export function setBbCrsPath(path: string): void {
 async function callBbapi(encoded: Uint8Array): Promise<any> {
   if (!Barretenberg) {throw new Error('Barretenberg native module not loaded');}
   const inputB64 = Buffer.from(encoded).toString('base64');
+  // Diagnostic for RN bridge / Java Base64.decode size limits ("Length is too large" symptom).
+  console.info(`[bb] callBbapi msgpack=${encoded.length}B inputB64=${inputB64.length}B`);
   const outputB64: string = await Barretenberg.bbapi(inputB64);
   const outputBytes = new Uint8Array(Buffer.from(outputB64, 'base64'));
   const decoded = decode(outputBytes) as any;

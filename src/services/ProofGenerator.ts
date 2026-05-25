@@ -1,5 +1,4 @@
 import { Buffer } from 'buffer';
-import pako from 'pako';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { RegistryClient } from '@zkpassport/registry';
 import {
@@ -45,6 +44,9 @@ import {
   writeCachedPackagedCircuit,
 } from './RegistryCache';
 import { fetchPackagedCertificates } from './fetchPackagedCertificates';
+import { bytecodeWireFormat, registryBytecodeToProveBytes } from '../utils/witnessBytecode';
+import { proveInnerOnServer } from './ServerClient';
+import { normalizeProveInnerUrl, shouldProveInnerOnServer } from './proveTier';
 
 const CHAIN_ID = 11155111;
 const CIRCUIT_VERSION = '0.18.0';
@@ -80,13 +82,6 @@ type OuterCircuitProof = {
   treeHashPath: string[];
   treeIndex: string;
 };
-
-const STARTUP_BASELINE_CIRCUITS = [
-  'disclose_bytes_evm',
-  'sig_check_dsc_tbs_1000_rsa_pkcs_4096_sha256',
-  'sig_check_id_data_tbs_1000_rsa_pkcs_2048_sha256',
-  'data_check_integrity_sa_sha256_dg_sha1',
-] as const;
 
 type PreparedCircuitArtifact = {
   packaged: any;
@@ -161,6 +156,8 @@ async function timed<T>(stage: string, fn: () => Promise<T>, detail?: string): P
 
 export interface ProofOptions {
   walletAddress?: string;
+  proveInnerUrl?: string;
+  aggregateUrl?: string;
 }
 
 export async function generatePassportInnerProofPackage(pd: PassportData, onP: ProgressFn, requestQuery?: Query | null, requestService?: { scope?: string } | null, options?: ProofOptions): Promise<InnerProofPackage> {
@@ -215,11 +212,14 @@ export async function generatePassportInnerProofPackage(pd: PassportData, onP: P
     circuitNames.join(','),
   );
 
+  // CRS is only used for on-device inner proofs; outer aggregation runs server-side, so excluding
+  // outerName here keeps bn254_g1.dat to inner-circuit sizes instead of pinning ~256 MB for outer.
+  const innerCircuitNames = [dscName, idDataName, integrityName, ...disclosurePlans.map((p) => p.circuitName)];
   onP('download', 'Preparing CRS from manifest sizes...');
   const crsDir = await timed(
     'crs.ensure',
-    () => ensureCrsFilesForCircuits(circuitNames.map((name) => Number(manifest.circuits?.[name]?.size || 0)), onP),
-    `${circuitNames.length} circuits`,
+    () => ensureCrsFilesForCircuits(innerCircuitNames.map((name) => Number(manifest.circuits?.[name]?.size || 0)), onP),
+    `${innerCircuitNames.length} inner circuits`,
   );
   setBbCrsPath(crsDir);
 
@@ -254,15 +254,15 @@ export async function generatePassportInnerProofPackage(pd: PassportData, onP: P
   if (!integrityInputs) {throw new Error('Could not derive integrity inputs');}
 
   onP('prove', `[1/${3 + disclosureCount}] ${dscName}`);
-  const dscProof = await fetchAndProveInnerCircuit(registry, manifest, dscName, dscInputs, onP);
+  const dscProof = await fetchAndProveInnerCircuit(registry, manifest, dscName, dscInputs, onP, options);
   onP('prove', `  ✅ ${dscName}`);
 
   onP('prove', `[2/${3 + disclosureCount}] ${idDataName}`);
-  const idProof = await fetchAndProveInnerCircuit(registry, manifest, idDataName, idInputs, onP);
+  const idProof = await fetchAndProveInnerCircuit(registry, manifest, idDataName, idInputs, onP, options);
   onP('prove', `  ✅ ${idDataName}`);
 
   onP('prove', `[3/${3 + disclosureCount}] ${integrityName}`);
-  const integrityProof = await fetchAndProveInnerCircuit(registry, manifest, integrityName, integrityInputs, onP);
+  const integrityProof = await fetchAndProveInnerCircuit(registry, manifest, integrityName, integrityInputs, onP, options);
   onP('prove', `  ✅ ${integrityName}`);
 
   // comm_in must come from getDiscloseCircuitInputs (hashSaltDg1Dg2HashPrivateNullifier); the circuit
@@ -285,7 +285,7 @@ export async function generatePassportInnerProofPackage(pd: PassportData, onP: P
       throw new Error(`Could not derive inputs for ${plan.circuitName}`);
     }
     onP('prove', `[${step}/${3 + disclosureCount}] ${plan.circuitName}`);
-    const proof = await fetchAndProveInnerCircuit(registry, manifest, plan.circuitName, disclosureInputs, onP);
+    const proof = await fetchAndProveInnerCircuit(registry, manifest, plan.circuitName, disclosureInputs, onP, options);
     assertDisclosureCommInMatchesIntegrityOut(
       plan.circuitName,
       integrityProof.publicInputs,
@@ -319,19 +319,11 @@ export async function preloadCoreProofAssets(onP: ProgressFn): Promise<void> {
   const certRoot = await timed('startup.certificates.root', () => registry.getLatestCertificateRoot());
   const certs = await timed('startup.certificates', () => ensureCertificates(registry, certRoot), certRoot);
   onP('startup', `Certificates ready (${certs.certificates?.length || 0})`);
-
-  onP('startup', 'Caching common proof circuits...');
-  const baselineSizes: number[] = [];
-  for (const name of STARTUP_BASELINE_CIRCUITS) {
-    const size = Number(manifest?.circuits?.[name]?.size || 0);
-    baselineSizes.push(size);
-    await timed(`startup.circuit.${name}`, () => ensurePreparedCircuit(registry, manifest, name), name);
-    onP('startup', `Cached ${name}`);
-  }
-
-  onP('startup', 'Preparing proving CRS...');
-  await timed('startup.crs', () => ensureCrsFilesForCircuits(baselineSizes, onP), `${baselineSizes.length} circuits`);
-  onP('startup', 'Device proof data is ready');
+  // Circuit bytecode + CRS warming intentionally deferred to first sign:
+  // - keeps cold start fast,
+  // - avoids decompressing baseline circuits we may never use this session,
+  // - lets CRS sizing be driven by the actual session's inner circuits.
+  onP('startup', 'Registry ready (circuits load on first sign)');
 }
 
 export async function preloadRequestProofAssets(requestQuery: Query | null | undefined, onP: ProgressFn): Promise<void> {
@@ -353,13 +345,13 @@ export async function preloadRequestProofAssets(requestQuery: Query | null | und
   }
 }
 
-async function fetchAndProveInnerCircuit(registry: RegistryClient, manifest: any, name: string, inputs: Record<string, any>, onP: ProgressFn): Promise<OuterCircuitProof> {
+async function fetchAndProveInnerCircuit(registry: RegistryClient, manifest: any, name: string, inputs: Record<string, any>, onP: ProgressFn, options?: ProofOptions): Promise<OuterCircuitProof> {
   const ch = manifest?.circuits?.[name]?.hash;
   if (!ch) {throw new Error(`No circuit hash in manifest for ${name}`);}
   onP('download', `Circuit ${name} (cache or network)...`);
   const prepared = await timed(`circuit.ready.${name}`, () => ensurePreparedCircuit(registry, manifest, name), name);
   onP('download', `  ${name} OK`);
-  return await proveInnerCircuit(name, prepared, inputs, manifest);
+  return await proveInnerCircuit(name, prepared, inputs, manifest, onP, options);
 }
 
 async function ensureManifest(registry: RegistryClient): Promise<any> {
@@ -416,7 +408,8 @@ async function ensurePreparedCircuit(registry: RegistryClient, manifest: any, na
 
   const art = await ensurePackagedCircuit(registry, manifest, name);
   const prepared = await timed(`circuit.decode.${name}`, async () => {
-    const bytecode = decompressBytecode(new Uint8Array(Buffer.from(art.bytecode, 'base64')));
+    // Witness: registry base64 (gzip). Prove: decompressed ACIR for bbapi (see logcat: gzip → Length is too large).
+    const bytecode = registryBytecodeToProveBytes(art.bytecode);
     const vkey = new Uint8Array(Buffer.from(art.vkey, 'base64'));
     return {
       packaged: art,
@@ -430,8 +423,8 @@ async function ensurePreparedCircuit(registry: RegistryClient, manifest: any, na
   return prepared;
 }
 
-async function proveInnerCircuit(name: string, prepared: PreparedCircuitArtifact, inputs: Record<string, any>, manifest: any): Promise<OuterCircuitProof> {
-  const raw = await proveRawCircuit(name, prepared, inputs);
+async function proveInnerCircuit(name: string, prepared: PreparedCircuitArtifact, inputs: Record<string, any>, manifest: any, onP: ProgressFn, options?: ProofOptions): Promise<OuterCircuitProof> {
+  const raw = await proveRawCircuit(name, prepared, inputs, manifest, onP, options);
   const tree = await computeCircuitMerkleProofForName(manifest, name);
   return {
     proof: raw.proof,
@@ -443,7 +436,7 @@ async function proveInnerCircuit(name: string, prepared: PreparedCircuitArtifact
   };
 }
 
-async function proveRawCircuit(name: string, prepared: PreparedCircuitArtifact, inputs: Record<string, any>): Promise<{ proof: string[]; publicInputs: string[] }> {
+async function proveRawCircuit(name: string, prepared: PreparedCircuitArtifact, inputs: Record<string, any>, manifest: any, onP: ProgressFn, options?: ProofOptions): Promise<{ proof: string[]; publicInputs: string[] }> {
   let witness: Uint8Array | undefined;
   try {
     witness = await timed(`witness.${name}`, () => solveCompressedWitness({
@@ -453,16 +446,47 @@ async function proveRawCircuit(name: string, prepared: PreparedCircuitArtifact, 
       file_map: prepared.packaged.file_map && typeof prepared.packaged.file_map === 'object' ? prepared.packaged.file_map : {},
       inputs,
     }), name);
-    const result = await timed(`prove.${name}`, () => circuitProve(prepared.bytecode, witness!, prepared.vkey, name), name);
-    const proof = (result.proof || []).map(toFieldHex);
-    const publicInputs = (result.public_inputs || []).map(toFieldHex);
+    const resolvedProveInnerUrl = options?.proveInnerUrl?.trim()
+      || (options?.aggregateUrl?.trim() ? normalizeProveInnerUrl(options.aggregateUrl) : undefined);
+    const useServer = shouldProveInnerOnServer(
+      name,
+      manifest,
+      prepared.bytecode.length,
+      resolvedProveInnerUrl,
+    );
+    const proveTarget = useServer ? 'server' : 'device';
+    console.info(
+      `[prove] ${name} target=${proveTarget} bytecode=${bytecodeWireFormat(prepared.bytecode)} len=${prepared.bytecode.length} witness=${witness!.length}`,
+    );
+    let proof: string[];
+    let publicInputs: string[];
+    if (proveTarget === 'server') {
+      onP('prove', `Server proving ${name}...`);
+      const remote = await timed(`prove.server.${name}`, () => proveInnerOnServer(
+        resolvedProveInnerUrl,
+        options?.aggregateUrl,
+        {
+          circuitName: name,
+          circuitVersion: CIRCUIT_VERSION,
+          witness: witness!,
+        },
+      ), name);
+      proof = remote.proof;
+      publicInputs = remote.publicInputs;
+    } else {
+      const result = await timed(`prove.${name}`, () => circuitProve(prepared.bytecode, witness!, prepared.vkey, name), name);
+      proof = (result.proof || []).map(toFieldHex);
+      publicInputs = (result.public_inputs || []).map(toFieldHex);
+    }
     if (prepared.expectedPublicInputs !== publicInputs.length) {
       console.warn(`${name}: vkey public inputs=${prepared.expectedPublicInputs}, actual=${publicInputs.length}`);
     }
     return { proof, publicInputs };
   } catch (err: any) {
     const msg = err?.message || String(err);
-    console.error(`[ProofGenerator] ${name} failed: ${msg}`);
+    console.error(
+      `[ProofGenerator] ${name} failed: ${msg} (prove bytecode=${bytecodeWireFormat(prepared.bytecode)} len=${prepared.bytecode.length})`,
+    );
     if (err?.stack) {console.error(err.stack);}
     throw new Error(`${name} failed: ${msg}`);
   } finally {
@@ -491,17 +515,6 @@ function toFieldHex(value: any): string {
   if (value instanceof Uint8Array) {return `0x${Buffer.from(value).toString('hex')}`;}
   if (Array.isArray(value) && value.every((x) => typeof x === 'number')) {return `0x${Buffer.from(value).toString('hex')}`;}
   return `0x${BigInt(value).toString(16)}`;
-}
-
-function decompressBytecode(data: Uint8Array): Uint8Array {
-  if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
-    try {
-      return pako.ungzip(data);
-    } catch {
-      return data;
-    }
-  }
-  return data;
 }
 
 function buildPassportViewModel(pd: PassportData): any {

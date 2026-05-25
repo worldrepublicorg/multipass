@@ -1,4 +1,6 @@
+import { Buffer } from 'buffer';
 import type { InnerProofPackage, ProofResult } from './ProofGenerator';
+import { normalizeProveInnerUrl } from './proveTier';
 
 function jsonStringifySafe(value: unknown): string {
   return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? `0x${v.toString(16)}` : v));
@@ -8,6 +10,7 @@ export interface ProofRequestPayload {
   kind: string;
   version: number;
   aggregateUrl: string;
+  proveInnerUrl?: string;
   petitionId?: string;
   service?: {
     name?: string;
@@ -134,4 +137,61 @@ export async function aggregateProofOnServer(baseUrl: string, inner: InnerProofP
     throw new ServerError(errorMsg, resp.status);
   }
   return body as ProofResult;
+}
+
+export interface ProveInnerServerParams {
+  circuitName: string;
+  circuitVersion: string;
+  witness: Uint8Array;
+}
+
+export interface ProveInnerServerResult {
+  proof: string[];
+  publicInputs: string[];
+}
+
+function resolveProveInnerUrl(
+  proveInnerUrl: string | undefined,
+  aggregateUrl: string | undefined,
+): string {
+  const explicit = proveInnerUrl?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (aggregateUrl?.trim()) {
+    return normalizeProveInnerUrl(aggregateUrl);
+  }
+  throw new Error('proveInnerUrl is missing (and aggregateUrl could not be used to derive it)');
+}
+
+export async function proveInnerOnServer(
+  proveInnerUrl: string | undefined,
+  aggregateUrl: string | undefined,
+  params: ProveInnerServerParams,
+): Promise<ProveInnerServerResult> {
+  const url = resolveProveInnerUrl(proveInnerUrl, aggregateUrl);
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      circuitName: params.circuitName,
+      circuitVersion: params.circuitVersion,
+      witness: Buffer.from(params.witness).toString('base64'),
+    }),
+  });
+  const text = await resp.text();
+  let body: any = {};
+  try { body = text ? JSON.parse(text) : {}; } catch {
+    throw new ServerError(`Prove-inner returned non-JSON (${resp.status}): ${text.slice(0, 300)}`, resp.status);
+  }
+  if (!resp.ok) {
+    throw new ServerError(body?.error || body?.message || `Prove-inner failed (${resp.status})`, resp.status);
+  }
+  if (!Array.isArray(body?.proof) || !Array.isArray(body?.publicInputs)) {
+    throw new ServerError('Prove-inner response missing proof/publicInputs arrays', resp.status);
+  }
+  return {
+    proof: body.proof,
+    publicInputs: body.publicInputs,
+  };
 }

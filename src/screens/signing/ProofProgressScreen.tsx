@@ -22,6 +22,7 @@ import {
   generatePassportInnerProofPackage,
 } from '../../services/ProofGenerator';
 import { aggregateProofOnServer, DuplicateSignatureError } from '../../services/ServerClient';
+import { normalizeProveInnerUrl } from '../../services/proveTier';
 import { useWallet } from '../../contexts/WalletContext';
 import type { SigningStackParamList } from '../../navigation/types';
 
@@ -212,7 +213,11 @@ export function ProofProgressScreen() {
         },
         request.query,
         request.service,
-        { walletAddress: walletAddress || undefined },
+        {
+          walletAddress: walletAddress || undefined,
+          proveInnerUrl: request.proveInnerUrl ?? normalizeProveInnerUrl(request.aggregateUrl),
+          aggregateUrl: request.aggregateUrl,
+        },
       );
 
       updateStep('compute', 'completed');

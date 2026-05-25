@@ -249,6 +249,47 @@ gcloud compute scp \
 
 Install on a physical Android device (unknown sources / sideload). Uninstall a previous build—or **clear app storage**—if the launcher label does not update or you are retesting CRS/memory fixes.
 
+### Debugging on device (wireless ADB)
+
+You do **not** need a USB cable to capture native logs (Barretenberg JNI, `[bb] callBbapi`, `[ProofTiming]`). Use **wireless debugging** on Android 11+ when the phone and laptop are on the **same Wi‑Fi**.
+
+**In-app (no laptop):** On the proof progress screen, tap the lock/spinner area **5 times** quickly to open **Debug Logs** (`[registry]`, `[crs]`, `[prove]`, errors). Use **Copy Logs** to paste into a note or chat.
+
+**Wireless ADB (recommended for native detail):**
+
+1. On the phone: **Settings → Developer options → Wireless debugging** → On.
+2. Tap **Pair device with pairing code** and note the **pairing** IP:port and 6‑digit code.
+3. On the laptop (WSL or Windows PowerShell — use whichever sees your LAN; WSL2 sometimes needs PowerShell if `adb devices` stays empty):
+
+```bash
+adb kill-server && adb start-server
+
+# Pair once per session (IP:PORT and code from the phone)
+adb pair 192.168.x.x:PORT
+adb connect 192.168.x.x:PORT   # use the IP:port on the main Wireless debugging screen (often different from pair port)
+
+adb devices   # should show the phone as "device"
+```
+
+Capture logs while reproducing a failure:
+
+```bash
+adb logcat -c
+# reproduce on phone (e.g. sign flow until error)
+adb logcat -d \
+  ReactNativeJS:V \
+  BarretenbergJNI:V Barretenberg:V \
+  AcvmWitness:V AcvmWitnessJNI:V \
+  "*:S" \
+  | tee multipass-logcat.txt
+```
+
+Look for `[ProofTiming]`, `[bb] callBbapi msgpack=…`, and `BarretenbergJNI: bbapi …` lines. `console.info` from JS does **not** appear in the in-app Debug Logs panel; use logcat for those.
+
+For **RSA-4096 DSC** passports, heavy inner prove runs on your dev API (`proveInnerUrl` in the session JSON). In logcat / in-app logs, expect `[prove] sig_check_dsc_… target=server` for DSC and `target=device` for smaller inners. Run **world-republic** `pnpm dev` (or tunnel) on the same host as `verifyUrl` so `POST …/api/proofs/prove-inner` is reachable; first prove may take several minutes while Barretenberg WASM/CRS initializes on the server.
+
+**Notes:** Enable **Developer options** first (tap build number 7×). Some OEMs require turning on **USB debugging** once before wireless debugging appears. Pairing codes expire quickly — start `adb pair` right after opening the pairing dialog.
+
 ### Troubleshooting
 
 | Symptom | Fix |
@@ -263,6 +304,8 @@ Install on a physical Android device (unknown sources / sideload). Uninstall a p
 | `grep` on VM shows old source; `make apk` very fast | Wrong user home or Docker cache; verify `whoami` and tarball before trusting APK |
 | WSL / laptop freezes during `make apk` | Use GCE; do not build on hosts with under **16 GB RAM** |
 | APK ~117 MB seems large | Normal for **arm64-only** release with embedded native provers; verify `ls -lh out/app-release.apk` on the build VM |
+| Need Barretenberg / `[bb]` logs without USB | [Wireless ADB](#debugging-on-device-wireless-adb); in-app panel is JS `onP` only (5× tap lock on proof screen) |
+| `adb devices` empty from WSL | Run `adb` from **Windows PowerShell** on the same Wi‑Fi, or fix WSL↔Windows adb forwarding |
 
 ### Local development (no APK)
 
