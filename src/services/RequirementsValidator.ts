@@ -109,8 +109,12 @@ export function validateIDAgainstQuery(id: StoredID, query?: Query | null): Vali
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  if (!id.verifiedAt) {
+    errors.push('This document was not verified at scan. Remove it and scan again.');
+  }
+
   if (!query || Object.keys(query).length === 0) {
-    return { valid: true, errors: [], warnings: [] };
+    return { valid: errors.length === 0, errors, warnings };
   }
 
   if (isDocumentExpired(id.expiryDate)) {

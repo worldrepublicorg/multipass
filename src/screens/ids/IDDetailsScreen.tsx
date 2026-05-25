@@ -112,6 +112,14 @@ export function IDDetailsScreen() {
         </Card>
 
         <Card title="Technical Details">
+          <InfoRow
+            label="Registry verify"
+            value={
+              id.verifiedAt
+                ? `Verified ${new Date(id.verifiedAt).toLocaleString()}`
+                : 'Not verified (add again)'
+            }
+          />
           <InfoRow label="Added on" value={addedDate} />
           <InfoRow label="DG1 Size" value={`${Math.round(id.dg1.length * 0.75)} bytes`} />
           <InfoRow label="SOD Size" value={formatBytes(id.sod.length * 0.75)} />

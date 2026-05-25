@@ -139,8 +139,8 @@ export function NfcReadScreen() {
 
       if (scanAttemptRef.current !== attempt) {return;}
 
-      setStatus('Processing document data...');
-      setProgress(100);
+      setStatus('Verifying document against registry...');
+      setProgress(85);
       const newId = await addID(result.dg1, result.sod);
 
       await setupAuth();

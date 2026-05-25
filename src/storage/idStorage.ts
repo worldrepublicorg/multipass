@@ -6,6 +6,12 @@ const IDS_STORAGE_KEY = 'vocdoni_stored_ids';
 export interface StoredID {
   id: string;
   createdAt: number;
+  /** Unix ms when plain registry verify succeeded at scan (path A). */
+  verifiedAt?: number;
+  /** zkPassport registry certificate root used at scan verify. */
+  certRoot?: string;
+  /** sha256(hex) of raw SOD bytes at scan — integrity check at submit. */
+  sodHash?: string;
   dg1: string;
   sod: string;
   documentType: 'passport' | 'id_card';

@@ -21,7 +21,17 @@ import { saveSignature, generateSignatureId } from '../../storage/historyStorage
 import {
   generatePassportInnerProofPackage,
 } from '../../services/ProofGenerator';
-import { aggregateProofOnServer, DuplicateSignatureError } from '../../services/ServerClient';
+import {
+  aggregateProofOnServer,
+  DuplicateSignatureError,
+  submitTrustedValidityOnServer,
+} from '../../services/ServerClient';
+import {
+  assertTrustedSubmitReady,
+  deriveTrustedNullifier,
+  isTrustedProofRequest,
+  resolveTrustedScope,
+} from '../../services/trustedValidity';
 import { normalizeProveInnerUrl } from '../../services/proveTier';
 import { useWallet } from '../../contexts/WalletContext';
 import type { SigningStackParamList } from '../../navigation/types';
@@ -194,6 +204,62 @@ export function ProofProgressScreen() {
     Animated.timing(progressAnim, { toValue: 0.1, duration: 300, useNativeDriver: false }).start();
 
     try {
+      if (isTrustedProofRequest(request)) {
+        addLog('info', 'Trusted validity path (no ZK proof)');
+        assertTrustedSubmitReady(storedId, request);
+        const scope = resolveTrustedScope(request);
+        const nullifier = deriveTrustedNullifier(scope, storedId.sod);
+        addLog('info', `Scope: ${scope}`);
+        addLog('info', `Nullifier: ${nullifier.slice(0, 18)}...`);
+
+        updateStep('prepare', 'completed');
+        updateStep('compute', 'completed');
+        updateStep('upload', 'active');
+        Animated.timing(progressAnim, { toValue: 0.75, duration: 300, useNativeDriver: false }).start();
+        addLog('info', 'Submitting nullifier to server...');
+
+        const result = await submitTrustedValidityOnServer(request.aggregateUrl, {
+          validityMode: 'trusted',
+          nullifier,
+          scope,
+          request: request.petitionId ? { petitionId: request.petitionId } : undefined,
+        });
+
+        updateStep('upload', 'completed');
+        updateStep('verify', 'completed');
+        Animated.timing(progressAnim, { toValue: 1, duration: 300, useNativeDriver: false }).start();
+
+        const durationMs = Date.now() - processStartRef.current;
+        setTotalTime(durationMs);
+        addLog('info', `Trusted submit completed in ${(durationMs / 1000).toFixed(1)}s`);
+
+        await saveSignature({
+          id: generateSignatureId(),
+          timestamp: Date.now(),
+          serviceName: request.service?.name || 'Verification',
+          serviceUrl: request.aggregateUrl,
+          petitionId: request.petitionId,
+          purpose: request.service?.purpose,
+          disclosedFields: [],
+          rules: [],
+          success: true,
+          nullifier: result.nullifier ?? nullifier,
+          durationMs,
+          usedIdRef: selectedIdRef,
+          usedIdLabel: `${storedId.issuingCountry} ${getDocumentLabel(storedId.issuingCountry, storedId.mrzDocCode)}`,
+        });
+
+        setTimeout(() => {
+          navigation.replace('SigningSuccess', {
+            request,
+            nullifier: result.nullifier ?? nullifier,
+            durationMs,
+            proofName: result.name ?? 'trusted-validity',
+          });
+        }, 800);
+        return;
+      }
+
       addLog('info', 'Generating inner proof package...');
       if (walletAddress) {
         addLog('info', `Binding wallet address: ${walletAddress.slice(0, 10)}...${walletAddress.slice(-8)}`);

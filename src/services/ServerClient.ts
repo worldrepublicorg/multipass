@@ -12,6 +12,8 @@ export interface ProofRequestPayload {
   aggregateUrl: string;
   proveInnerUrl?: string;
   petitionId?: string;
+  /** Path A: trusted validity submit (nullifier only, no ZK package). */
+  validityMode?: 'trusted' | 'zk';
   service?: {
     name?: string;
     logo?: string;
@@ -23,6 +25,13 @@ export interface ProofRequestPayload {
   };
   query?: Record<string, any>;
 }
+
+export type TrustedValiditySubmitBody = {
+  validityMode: 'trusted';
+  nullifier: string;
+  scope: string;
+  request?: { petitionId?: string };
+};
 
 function normalizeAggregateUrl(value: string): string {
   const trimmed = value.trim().replace(/\/$/, '');
@@ -114,6 +123,31 @@ export class ServerError extends Error {
     this.name = 'ServerError';
     this.statusCode = statusCode;
   }
+}
+
+export async function submitTrustedValidityOnServer(
+  baseUrl: string,
+  body: TrustedValiditySubmitBody,
+): Promise<ProofResult> {
+  const url = normalizeAggregateUrl(baseUrl);
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  let parsed: any = {};
+  try { parsed = text ? JSON.parse(text) : {}; } catch {
+    throw new ServerError(`Server returned non-JSON response (${resp.status}): ${text.slice(0, 300)}`, resp.status);
+  }
+  if (!resp.ok) {
+    const errorMsg = parsed?.error || parsed?.message || `Trusted submit failed (${resp.status})`;
+    if (resp.status === 409 || errorMsg.toLowerCase().includes('already exists') || errorMsg.toLowerCase().includes('duplicate')) {
+      throw new DuplicateSignatureError(errorMsg);
+    }
+    throw new ServerError(errorMsg, resp.status);
+  }
+  return parsed as ProofResult;
 }
 
 export async function aggregateProofOnServer(baseUrl: string, inner: InnerProofPackage, request?: ProofRequestPayload | null): Promise<ProofResult> {

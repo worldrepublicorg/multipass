@@ -8,6 +8,7 @@ import {
   parsePassportData,
   type StoredID,
 } from '../storage/idStorage';
+import { DocumentVerifyError, plainVerifyPassport } from '../services/documentVerify';
 
 export function useIDs() {
   const [ids, setIds] = useState<StoredID[]>([]);
@@ -36,10 +37,22 @@ export function useIDs() {
     sod: string,
   ): Promise<StoredID> => {
     const parsed = parsePassportData(dg1, sod);
+    let verification;
+    try {
+      verification = await plainVerifyPassport(dg1, sod);
+    } catch (err: any) {
+      if (err instanceof DocumentVerifyError) {
+        throw err;
+      }
+      throw new DocumentVerifyError(err?.message || 'Passport verification failed');
+    }
     const newId: StoredID = {
       ...parsed,
       id: generateIDId(),
       createdAt: Date.now(),
+      verifiedAt: verification.verifiedAt,
+      certRoot: verification.certRoot,
+      sodHash: verification.sodHash,
     };
     await saveID(newId);
     await refresh();
