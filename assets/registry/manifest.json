@@ -1,0 +1,8 @@
+{
+  "chainId": 1,
+  "certRoot": "0x1a46d2abb5609cb22b62fa3275c85adefbf798cdb41407122f36801d50dd527f",
+  "fetchedAt": "2026-06-07T00:35:43.215Z",
+  "certificateCount": 584,
+  "wireBytes": 886856,
+  "gzipBytes": 416135
+}

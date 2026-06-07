@@ -1,0 +1,17 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/TWKLausanne-350.ttf",
+      "sha1": "bd39287a39f0b233a00bc1b033098fcb1c3df04a"
+    },
+    {
+      "path": "assets/fonts/TWKLausanne-500.ttf",
+      "sha1": "b4b610bb541a6921125e0e2ecc48a70dbedf4f89"
+    },
+    {
+      "path": "assets/fonts/TWKLausanne-600.ttf",
+      "sha1": "1b580c884180005d882f1494c5b57a631e8f25c8"
+    }
+  ]
+}
